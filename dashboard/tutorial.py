@@ -240,6 +240,55 @@ def _get_steps(page: str):
             }""",
         ]
 
+    elif page == "welcome":
+        # Pre-login tour — no page elements to highlight, so all floating tooltips
+        return [
+            """{
+                title: 'Welcome to the Rates Dashboard',
+                intro: 'This is an interactive tutorial that walks you through the full dashboard.<br><br>Enter the password to unlock the dashboard, then explore each page.<br><br>Click <b>Next</b> to preview what\'s inside.'
+            }""",
+            """{
+                title: 'Home — Market Overview',
+                intro: 'The <b>Home page</b> shows live KPI metrics for:<br><br>' +
+                    '• <b>US Treasury yields</b> (1Y–30Y)<br>' +
+                    '• <b>International yields</b> (DE, UK, CH, JP)<br>' +
+                    '• <b>SOFR swaps & credit spreads</b> (IG, HY, BBB)<br>' +
+                    '• <b>Yield curve snapshot</b> — today vs N months ago<br><br>' +
+                    'Every metric shows the change vs your chosen lookback period.'
+            }""",
+            """{
+                title: 'Yield Curve & Spreads',
+                intro: '<b>Yield Curve page:</b> Animated curve evolution, butterfly analysis, and curve shape metrics.<br><br>' +
+                    '<b>Spreads page:</b> 2s10s, 5s30s, and custom spreads with z-score bands and percentile rankings.'
+            }""",
+            """{
+                title: 'Regression & PCA',
+                intro: '<b>Regression:</b> Run rolling OLS on any two series — find rich/cheap vs fair value, with residual z-scores.<br><br>' +
+                    '<b>PCA:</b> Decompose the curve into Level, Slope, and Curvature factors. See how much each explains.'
+            }""",
+            """{
+                title: 'Trade Scanner (Analysis)',
+                intro: 'The most powerful page — scans <b>100+ outright, curve, and fly trades</b> and ranks them by:<br><br>' +
+                    '• <b>Sharpe ratio</b> — risk-adjusted expected return<br>' +
+                    '• <b>Z-score</b> — how cheap/rich vs history<br>' +
+                    '• <b>Carry + Rolldown</b> — income from holding<br>' +
+                    '• <b>Net Convexity</b> — DV01-weighted convexity pickup<br><br>' +
+                    'Click any trade for a deep-dive detail panel with charts.'
+            }""",
+            """{
+                title: 'Vol Surface & Trade Tracker',
+                intro: '<b>Vol Surface:</b> 3D swaption vol surface, heatmap, and SABR smile estimator.<br><br>' +
+                    '<b>Trade Tracker:</b> Log trade ideas with live entry levels, track P&L in real-time, and see your win rate and cumulative performance.'
+            }""",
+            """{
+                title: 'Alerts, Glossary & More',
+                intro: '<b>Alerts:</b> Set up email notifications for top scanner movers.<br>' +
+                    '<b>Glossary:</b> Definitions for every metric and column.<br>' +
+                    '<b>Feature Request:</b> Submit ideas directly.<br><br>' +
+                    'Enter the password <b>"rates"</b> to get started!'
+            }""",
+        ]
+
     elif page == "analysis":
         return [
             """{
