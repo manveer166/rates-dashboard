@@ -17,7 +17,7 @@ import streamlit as st
 from config import TENOR_LABELS, TENOR_YEARS, PLOTLY_THEME
 from dashboard.components.controls import render_sidebar_controls
 from dashboard.state import get_master_df, init_session_state
-from dashboard.tutorial import render_tutorial_button, render_tutorial_overlay
+from dashboard.tutorial import render_tutorial_button, render_tutorial
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -369,7 +369,7 @@ def main():
 
     # ── Tutorial button ────────────────────────────────────────────────────
     st.divider()
-    render_tutorial_button()
+    render_tutorial_button(key_suffix="home")
 
     # ── Data info footer ───────────────────────────────────────────────────
     st.divider()
@@ -379,8 +379,8 @@ def main():
         f"| Sources: US Treasury · FRED (ICE SOFR, ICE BofA, OECD)"
     )
 
-    # ── Tutorial overlay (must be LAST — renders after all content) ──────
-    render_tutorial_overlay(page="home")
+    # ── Tutorial (must be LAST — renders after all content) ────────────
+    render_tutorial(page="home")
 
 
 if __name__ == "__main__":
