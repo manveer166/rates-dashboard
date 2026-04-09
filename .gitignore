@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Environment
+.env
+.env.*
+venv/
+.venv/
+
+# Data & cache (large files, regenerated)
+data/cache/
+data/*.parquet
+data/feature_requests.csv
+data/trade_log.csv
+data/alerts_config.json
+data/alerts_log.csv
+data/subscribers.csv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Credentials
+*.json
+!package.json
+credentials/
+service-account*.json
