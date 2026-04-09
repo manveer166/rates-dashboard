@@ -111,6 +111,8 @@ def password_gate() -> None:
                 else:
                     st.error("Incorrect password.")
         st.link_button("How to use", "/User_Guide", use_container_width=True)
+        from dashboard.tutorial import render_tutorial_button
+        render_tutorial_button()
     st.stop()
 
 

@@ -17,6 +17,7 @@ import streamlit as st
 from config import TENOR_LABELS, TENOR_YEARS, PLOTLY_THEME
 from dashboard.components.controls import render_sidebar_controls
 from dashboard.state import get_master_df, init_session_state
+from dashboard.tutorial import render_tutorial_button, render_tutorial_overlay
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -366,6 +367,10 @@ def main():
     with link_cols[2]:
         st.link_button("Contact", "mailto:ratesteam@macromanv.com", use_container_width=True)
 
+    # ── Tutorial button ────────────────────────────────────────────────────
+    st.divider()
+    render_tutorial_button()
+
     # ── Data info footer ───────────────────────────────────────────────────
     st.divider()
     st.caption(
@@ -373,6 +378,9 @@ def main():
         f"| {len(df):,} trading days | {df.shape[1]} series "
         f"| Sources: US Treasury · FRED (ICE SOFR, ICE BofA, OECD)"
     )
+
+    # ── Tutorial overlay (must be LAST — renders after all content) ──────
+    render_tutorial_overlay(page="home")
 
 
 if __name__ == "__main__":
