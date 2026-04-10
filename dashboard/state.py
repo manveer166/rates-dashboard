@@ -84,11 +84,35 @@ def _load_from_network(start: str, end: str) -> pd.DataFrame:
 # Public API
 # ---------------------------------------------------------------------------
 
-SITE_PASSWORD = "rates"
+VIEWER_PASSWORD = "rates"
+ADMIN_PASSWORD  = "manveer"
+
+# Backwards-compat alias (some old code may import this)
+SITE_PASSWORD = VIEWER_PASSWORD
+
+
+def is_admin() -> bool:
+    """True if the current session is logged in with the admin password."""
+    return bool(st.session_state.get("site_admin"))
+
+
+def require_admin(message: str = "Admin only — log in with the admin password to make changes.") -> bool:
+    """Render an info banner and return False if the current user is not admin.
+    Use to gate write actions inside pages."""
+    if is_admin():
+        return True
+    st.info(f"🔒 {message}")
+    return False
 
 
 def password_gate() -> None:
-    """Block the entire app until the user enters the site password.
+    """Block the entire app until the user enters a valid password.
+
+    Two passwords are accepted:
+      • "rates"   → viewer mode (read-only). Can browse every page but
+                    cannot save trades, change alert config, etc.
+      • "manveer" → admin mode. Full read + write access.
+
     Call at the top of every page (called automatically via render_sidebar_controls)."""
     if st.session_state.get("site_authenticated"):
         return
@@ -105,8 +129,13 @@ def password_gate() -> None:
         with st.form("site_gate", clear_on_submit=False):
             pw = st.text_input("Password", type="password", placeholder="Enter password")
             if st.form_submit_button("Enter", use_container_width=True):
-                if pw == SITE_PASSWORD:
+                if pw == ADMIN_PASSWORD:
                     st.session_state["site_authenticated"] = True
+                    st.session_state["site_admin"] = True
+                    st.rerun()
+                elif pw == VIEWER_PASSWORD:
+                    st.session_state["site_authenticated"] = True
+                    st.session_state["site_admin"] = False
                     st.rerun()
                 else:
                     st.error("Incorrect password.")

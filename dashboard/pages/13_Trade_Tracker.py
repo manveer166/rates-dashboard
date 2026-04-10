@@ -18,7 +18,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from config import PLOTLY_THEME
-from dashboard.state import password_gate, get_master_df, init_session_state
+from dashboard.state import password_gate, get_master_df, init_session_state, is_admin
 from dashboard.components.controls import render_sidebar_controls
 
 st.set_page_config(page_title="Trade Tracker", page_icon="📋", layout="wide")
@@ -107,64 +107,71 @@ _catalog_names = ["(custom)"] + sorted(_trade_catalog.keys())
 
 st.divider()
 
-# ── New trade entry ───────────────────────────────────────────────────────
-st.subheader("Log New Trade")
+# ── New trade entry (admin only) ──────────────────────────────────────────
+if not is_admin():
+    st.info(
+        "🔒 **Viewer mode** — log in with the admin password to log, edit, "
+        "or close trades. You can still view all trades and the track record."
+    )
 
-# Trade picker (outside form so it can update the level dynamically)
-pick_col1, pick_col2 = st.columns([2, 1])
-with pick_col1:
-    selected_trade = st.selectbox("Pick a trade", _catalog_names, key="trade_picker")
-with pick_col2:
-    direction = st.selectbox("Direction", ["Receive", "Pay"], key="trade_dir")
+if is_admin():
+    st.subheader("Log New Trade")
 
-# Resolve defaults from catalog
-if selected_trade != "(custom)" and selected_trade in _trade_catalog:
-    _info = _trade_catalog[selected_trade]
-    _default_name = selected_trade
-    _default_type = _info["type"]
-    _default_level = _info["level"]
-else:
-    _default_name = ""
-    _default_type = "Outright"
-    _default_level = 0.0
+    # Trade picker (outside form so it can update the level dynamically)
+    pick_col1, pick_col2 = st.columns([2, 1])
+    with pick_col1:
+        selected_trade = st.selectbox("Pick a trade", _catalog_names, key="trade_picker")
+    with pick_col2:
+        direction = st.selectbox("Direction", ["Receive", "Pay"], key="trade_dir")
 
-with st.form("new_trade", clear_on_submit=True):
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        trade_name = st.text_input("Trade", value=_default_name,
-                                    placeholder="e.g. Rcv 2Y/10Y")
-        type_options = ["Outright", "Curve", "Curve*", "Fly", "Fly*"]
-        type_idx = type_options.index(_default_type) if _default_type in type_options else 0
-        trade_type = st.selectbox("Type", type_options, index=type_idx)
-    with c2:
-        entry_level = st.number_input("Entry Level (current shown, editable)",
-                                       value=_default_level, format="%.4f", step=0.01)
-    with c3:
-        entry_date = st.date_input("Entry Date", value=datetime.today())
-        notes = st.text_input("Notes", placeholder="Rationale, target, stop...")
+    # Resolve defaults from catalog
+    if selected_trade != "(custom)" and selected_trade in _trade_catalog:
+        _info = _trade_catalog[selected_trade]
+        _default_name = selected_trade
+        _default_type = _info["type"]
+        _default_level = _info["level"]
+    else:
+        _default_name = ""
+        _default_type = "Outright"
+        _default_level = 0.0
 
-    if st.form_submit_button("Add Trade", use_container_width=True):
-        final_name = trade_name.strip() or selected_trade
-        if final_name and final_name != "(custom)":
-            new_row = pd.DataFrame([{
-                "id": _next_id(trades),
-                "date": str(entry_date),
-                "trade": final_name,
-                "type": trade_type,
-                "direction": direction,
-                "entry_level": entry_level,
-                "exit_level": np.nan,
-                "exit_date": "",
-                "status": "Open",
-                "pnl_bps": np.nan,
-                "notes": notes,
-            }])
-            trades = pd.concat([trades, new_row], ignore_index=True)
-            _save_trades(trades)
-            st.success(f"Trade {new_row['id'].iloc[0]} logged: {direction} {final_name} @ {entry_level:.4f}")
-            st.rerun()
-        else:
-            st.error("Select a trade or type a custom name.")
+    with st.form("new_trade", clear_on_submit=True):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            trade_name = st.text_input("Trade", value=_default_name,
+                                        placeholder="e.g. Rcv 2Y/10Y")
+            type_options = ["Outright", "Curve", "Curve*", "Fly", "Fly*"]
+            type_idx = type_options.index(_default_type) if _default_type in type_options else 0
+            trade_type = st.selectbox("Type", type_options, index=type_idx)
+        with c2:
+            entry_level = st.number_input("Entry Level (current shown, editable)",
+                                           value=_default_level, format="%.4f", step=0.01)
+        with c3:
+            entry_date = st.date_input("Entry Date", value=datetime.today())
+            notes = st.text_input("Notes", placeholder="Rationale, target, stop...")
+
+        if st.form_submit_button("Add Trade", use_container_width=True):
+            final_name = trade_name.strip() or selected_trade
+            if final_name and final_name != "(custom)":
+                new_row = pd.DataFrame([{
+                    "id": _next_id(trades),
+                    "date": str(entry_date),
+                    "trade": final_name,
+                    "type": trade_type,
+                    "direction": direction,
+                    "entry_level": entry_level,
+                    "exit_level": np.nan,
+                    "exit_date": "",
+                    "status": "Open",
+                    "pnl_bps": np.nan,
+                    "notes": notes,
+                }])
+                trades = pd.concat([trades, new_row], ignore_index=True)
+                _save_trades(trades)
+                st.success(f"Trade {new_row['id'].iloc[0]} logged: {direction} {final_name} @ {entry_level:.4f}")
+                st.rerun()
+            else:
+                st.error("Select a trade or type a custom name.")
 
 st.divider()
 
@@ -195,29 +202,30 @@ if not open_trades.empty:
     display_cols = [c for c in display_cols if c in open_df.columns]
     st.dataframe(open_df[display_cols], use_container_width=True, hide_index=True)
 
-    # Close trade form
-    with st.expander("Close a Trade"):
-        if not open_df.empty:
-            with st.form("close_trade"):
-                close_id = st.selectbox("Trade ID", open_df["id"].tolist())
-                exit_level = st.number_input("Exit Level", format="%.4f", step=0.01, key="exit_lvl")
-                exit_date = st.date_input("Exit Date", value=datetime.today(), key="exit_dt")
-                if st.form_submit_button("Close Trade"):
-                    idx = trades[trades["id"] == close_id].index
-                    if len(idx):
-                        i = idx[0]
-                        entry = float(trades.loc[i, "entry_level"])
-                        direction_mult = 1.0 if trades.loc[i, "direction"] == "Receive" else -1.0
-                        # For outrights: P&L in bps = (entry - exit) * 100 * direction
-                        # (receiver profits when rates fall)
-                        pnl = (entry - exit_level) * 100 * direction_mult
-                        trades.loc[i, "exit_level"] = exit_level
-                        trades.loc[i, "exit_date"] = str(exit_date)
-                        trades.loc[i, "status"] = "Closed"
-                        trades.loc[i, "pnl_bps"] = round(pnl, 1)
-                        _save_trades(trades)
-                        st.success(f"Closed {close_id}: P&L = {pnl:+.1f} bps")
-                        st.rerun()
+    # Close trade form (admin only)
+    if is_admin():
+        with st.expander("Close a Trade"):
+            if not open_df.empty:
+                with st.form("close_trade"):
+                    close_id = st.selectbox("Trade ID", open_df["id"].tolist())
+                    exit_level = st.number_input("Exit Level", format="%.4f", step=0.01, key="exit_lvl")
+                    exit_date = st.date_input("Exit Date", value=datetime.today(), key="exit_dt")
+                    if st.form_submit_button("Close Trade"):
+                        idx = trades[trades["id"] == close_id].index
+                        if len(idx):
+                            i = idx[0]
+                            entry = float(trades.loc[i, "entry_level"])
+                            direction_mult = 1.0 if trades.loc[i, "direction"] == "Receive" else -1.0
+                            # For outrights: P&L in bps = (entry - exit) * 100 * direction
+                            # (receiver profits when rates fall)
+                            pnl = (entry - exit_level) * 100 * direction_mult
+                            trades.loc[i, "exit_level"] = exit_level
+                            trades.loc[i, "exit_date"] = str(exit_date)
+                            trades.loc[i, "status"] = "Closed"
+                            trades.loc[i, "pnl_bps"] = round(pnl, 1)
+                            _save_trades(trades)
+                            st.success(f"Closed {close_id}: P&L = {pnl:+.1f} bps")
+                            st.rerun()
 else:
     st.info("No open trades. Use the form above to log a trade idea.")
 

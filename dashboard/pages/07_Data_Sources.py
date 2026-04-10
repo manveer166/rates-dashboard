@@ -16,7 +16,7 @@ from config import (
     TREASURY_TENORS, SOFR_SERIES, CORP_SPREAD_SERIES,
     INTL_SERIES, MACRO_SERIES, PLOTLY_THEME,
 )
-from dashboard.state import get_master_df, init_session_state, cache_age_str
+from dashboard.state import get_master_df, init_session_state, cache_age_str, is_admin
 from dashboard.components.controls import render_sidebar_controls
 
 st.set_page_config(page_title="Data Sources", page_icon="📡", layout="wide")
@@ -33,12 +33,18 @@ with fetch_col1:
         "🔄 Fetch Latest Data",
         type="primary",
         use_container_width=True,
-        help="Re-download all series from Treasury, FRED, and OECD. Bypasses cache.",
+        disabled=not is_admin(),
+        help=(
+            "Re-download all series from Treasury, FRED, and OECD. Bypasses cache."
+            if is_admin() else
+            "Admin only — log in with the admin password to refresh shared data."
+        ),
     )
 with fetch_col2:
-    st.caption(f"Cache age: **{cache_age_str()}**")
+    admin_tag = "" if is_admin() else "  · 🔒 admin only"
+    st.caption(f"Cache age: **{cache_age_str()}**{admin_tag}")
 
-if fetch_clicked:
+if fetch_clicked and is_admin():
     with st.spinner("Fetching latest data from Treasury, FRED, and OECD…"):
         df = get_master_df(force_network=True)
     if df.empty:

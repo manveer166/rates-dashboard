@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from dashboard.state import password_gate, get_master_df, init_session_state
+from dashboard.state import password_gate, get_master_df, init_session_state, is_admin
 from dashboard.components.controls import render_sidebar_controls
 
 st.set_page_config(page_title="Alerts", page_icon="🔔", layout="wide")
@@ -27,6 +27,13 @@ render_sidebar_controls()
 
 st.title("🔔 Email Alerts")
 st.caption("Configure automated scanner alerts — delivered to your inbox.")
+
+if not is_admin():
+    st.info(
+        "🔒 **Viewer mode** — you can preview the alert content but cannot "
+        "save the configuration or trigger sends. Log in with the admin "
+        "password to make changes."
+    )
 
 ALERTS_CONFIG = Path(__file__).parent.parent.parent / "data" / "alerts_config.json"
 ALERTS_LOG = Path(__file__).parent.parent.parent / "data" / "alerts_log.csv"
@@ -82,15 +89,18 @@ with st.form("alert_config"):
                                   default=cfg.get("trade_types", ["Outright", "Curve", "Fly"]))
 
     if st.form_submit_button("Save Configuration", use_container_width=True):
-        new_cfg = {
-            "enabled": enabled, "email": email, "frequency": frequency,
-            "top_n": top_n, "z_threshold": z_thresh,
-            "include_z_extremes": include_z, "include_big_movers": include_movers,
-            "mover_threshold_bps": mover_thresh, "trade_types": trade_types,
-        }
-        _save_config(new_cfg)
-        cfg = new_cfg
-        st.success("Configuration saved.")
+        if not is_admin():
+            st.error("🔒 Admin only — log in with the admin password to save changes.")
+        else:
+            new_cfg = {
+                "enabled": enabled, "email": email, "frequency": frequency,
+                "top_n": top_n, "z_threshold": z_thresh,
+                "include_z_extremes": include_z, "include_big_movers": include_movers,
+                "mover_threshold_bps": mover_thresh, "trade_types": trade_types,
+            }
+            _save_config(new_cfg)
+            cfg = new_cfg
+            st.success("Configuration saved.")
 
 st.divider()
 
@@ -246,6 +256,9 @@ if st.button("Preview Alert", use_container_width=True):
 st.divider()
 
 if st.button("Send Alert Now", type="primary", use_container_width=True):
+    if not is_admin():
+        st.error("🔒 Admin only — log in with the admin password to send alerts.")
+        st.stop()
     smtp_host = os.getenv("SMTP_HOST", "")
     smtp_user = os.getenv("SMTP_USER", "")
     smtp_pass = os.getenv("SMTP_PASS", "")

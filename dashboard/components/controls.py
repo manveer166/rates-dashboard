@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 
 import streamlit as st
 
-from dashboard.state import init_session_state, refresh_data, cache_age_str, password_gate
+from dashboard.state import init_session_state, refresh_data, cache_age_str, password_gate, is_admin
 
 
 def render_sidebar_controls() -> None:
@@ -69,10 +69,17 @@ def render_sidebar_controls() -> None:
         help="Uncheck to force fresh data fetch from all sources.",
     )
 
-    if st.sidebar.button("🔄 Refresh Data", type="primary", use_container_width=True):
+    if st.sidebar.button(
+        "🔄 Refresh Data",
+        type="primary",
+        use_container_width=True,
+        disabled=not is_admin(),
+        help=None if is_admin() else "Admin only — log in with the admin password to refresh shared data.",
+    ):
         refresh_data()
 
-    st.sidebar.caption(f"Cache: {cache_age_str()}")
+    role_tag = "👑 admin" if is_admin() else "👁️ viewer"
+    st.sidebar.caption(f"Cache: {cache_age_str()}  ·  {role_tag}")
 
     # ── Auth status ────────────────────────────────────────────────────
     import os
