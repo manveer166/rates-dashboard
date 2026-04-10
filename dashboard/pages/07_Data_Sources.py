@@ -16,7 +16,7 @@ from config import (
     TREASURY_TENORS, SOFR_SERIES, CORP_SPREAD_SERIES,
     INTL_SERIES, MACRO_SERIES, PLOTLY_THEME,
 )
-from dashboard.state import get_master_df, init_session_state
+from dashboard.state import get_master_df, init_session_state, cache_age_str
 from dashboard.components.controls import render_sidebar_controls
 
 st.set_page_config(page_title="Data Sources", page_icon="📡", layout="wide")
@@ -26,7 +26,32 @@ render_sidebar_controls()
 st.title("📡 Data Sources")
 st.caption("All data series used across the dashboard, with FRED codes, source URLs, and current availability.")
 
-df = get_master_df()
+# ── Fetch latest data ────────────────────────────────────────────────────
+fetch_col1, fetch_col2 = st.columns([1, 3])
+with fetch_col1:
+    fetch_clicked = st.button(
+        "🔄 Fetch Latest Data",
+        type="primary",
+        use_container_width=True,
+        help="Re-download all series from Treasury, FRED, and OECD. Bypasses cache.",
+    )
+with fetch_col2:
+    st.caption(f"Cache age: **{cache_age_str()}**")
+
+if fetch_clicked:
+    with st.spinner("Fetching latest data from Treasury, FRED, and OECD…"):
+        df = get_master_df(force_network=True)
+    if df.empty:
+        st.error("Fetch failed — no data returned. Check API keys and network.")
+    else:
+        st.success(
+            f"✅ Loaded **{len(df):,}** rows × **{df.shape[1]}** series · "
+            f"latest: **{df.index[-1].strftime('%Y-%m-%d')}**"
+        )
+else:
+    df = get_master_df()
+
+st.divider()
 
 def _status(col):
     if col in df.columns:
