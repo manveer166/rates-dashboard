@@ -4,6 +4,8 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import hashlib
+import hmac
 import logging
 from datetime import datetime
 
@@ -90,6 +92,30 @@ ADMIN_PASSWORD  = "manveer"
 # Backwards-compat alias (some old code may import this)
 SITE_PASSWORD = VIEWER_PASSWORD
 
+# ── Persistent auth via query params ─────────────────────────────────────
+# Streamlit session state is keyed by the websocket connection. If the user
+# clicks an HTML <a href="..."> link (as the header does), the browser may do
+# a full page reload, the websocket dies, and a new (logged-out) session is
+# created. To survive that, we mirror the auth state into ?auth=<token>
+# query param. The token is an HMAC of the role using a server-side secret,
+# so it cannot be forged without knowing the secret.
+_AUTH_SECRET = "macromanv-rates-2026-do-not-leak"
+
+
+def _auth_token(role: str) -> str:
+    """Deterministic, unforgeable token for a role ('admin' or 'viewer')."""
+    return hmac.new(_AUTH_SECRET.encode(), role.encode(), hashlib.sha256).hexdigest()[:16]
+
+
+def auth_query_string() -> str:
+    """Return '?auth=<token>' for the current authed user, or '' if not authed.
+    Used by the header links so auth survives a full page reload."""
+    if st.session_state.get("site_admin"):
+        return f"?auth={_auth_token('admin')}"
+    if st.session_state.get("site_authenticated"):
+        return f"?auth={_auth_token('viewer')}"
+    return ""
+
 
 def is_admin() -> bool:
     """True if the current session is logged in with the admin password."""
@@ -105,6 +131,23 @@ def require_admin(message: str = "Admin only — log in with the admin password 
     return False
 
 
+def _restore_auth_from_query_params() -> bool:
+    """If ?auth=<token> is present in the URL, restore session_state from it.
+    Returns True if auth was restored, False otherwise."""
+    qp = st.query_params.get("auth", "")
+    if not qp:
+        return False
+    if qp == _auth_token("admin"):
+        st.session_state["site_authenticated"] = True
+        st.session_state["site_admin"] = True
+        return True
+    if qp == _auth_token("viewer"):
+        st.session_state["site_authenticated"] = True
+        st.session_state["site_admin"] = False
+        return True
+    return False
+
+
 def password_gate() -> None:
     """Block the entire app until the user enters a valid password.
 
@@ -113,14 +156,29 @@ def password_gate() -> None:
                     cannot save trades, change alert config, etc.
       • "manveer" → admin mode. Full read + write access.
 
-    Call at the top of every page (called automatically via render_sidebar_controls)."""
+    Auth state is mirrored into ?auth=<token> in the URL so it survives
+    full page reloads (e.g. when the header HTML links navigate hard).
+
+    The login screen has a two-step flow:
+      1. Enter password and click Verify
+      2. After verification, choose Enter Dashboard or Start Tutorial
+    """
+    # Already authenticated this session
     if st.session_state.get("site_authenticated"):
         return
+
+    # Try to restore auth from the URL query params (survives hard reloads)
+    if _restore_auth_from_query_params():
+        return
+
+    pw_verified = st.session_state.get("site_pw_verified", False)
+    pw_role     = st.session_state.get("site_pw_role")  # 'admin' | 'viewer' | None
+
     # Hide the sidebar and main content behind a login form
     st.markdown(
         "<div style='text-align:center; padding-top:60px;'>"
         "<h1>📈 Rates Dashboard</h1>"
-        "<p style='color:#8892a4; margin-bottom:30px;'>Enter the password to continue</p>"
+        "<p style='color:#94a8c9; margin-bottom:30px;'>Enter the password to continue</p>"
         "</div>",
         unsafe_allow_html=True,
     )
@@ -128,25 +186,50 @@ def password_gate() -> None:
     with col2:
         with st.form("site_gate", clear_on_submit=False):
             pw = st.text_input("Password", type="password", placeholder="Enter password")
-            if st.form_submit_button("Enter", use_container_width=True):
+            label = "🔓 Verify Password" if not pw_verified else "✓ Re-verify"
+            if st.form_submit_button(label, use_container_width=True):
                 if pw == ADMIN_PASSWORD:
-                    st.session_state["site_authenticated"] = True
-                    st.session_state["site_admin"] = True
+                    st.session_state["site_pw_verified"] = True
+                    st.session_state["site_pw_role"]     = "admin"
                     st.rerun()
                 elif pw == VIEWER_PASSWORD:
-                    st.session_state["site_authenticated"] = True
-                    st.session_state["site_admin"] = False
+                    st.session_state["site_pw_verified"] = True
+                    st.session_state["site_pw_role"]     = "viewer"
                     st.rerun()
                 else:
                     st.error("Incorrect password.")
-        st.page_link("pages/11_User_Guide.py", label="How to use", use_container_width=True)
+
+        if pw_verified:
+            role_label = "👑 Admin" if pw_role == "admin" else "👁️ Viewer"
+            st.success(f"Verified — {role_label} mode unlocked. Choose how to begin:")
+
+        # ── Enter Dashboard (disabled until verified) ───────────────────
+        if st.button(
+            "🚪 Enter Dashboard",
+            type="primary",
+            use_container_width=True,
+            disabled=not pw_verified,
+            key="enter_dashboard_btn",
+            help=None if pw_verified else "Enter the password above first.",
+        ):
+            st.session_state["site_authenticated"] = True
+            st.session_state["site_admin"]         = (pw_role == "admin")
+            # Mirror into URL so a full reload from header nav still authenticates
+            st.query_params["auth"] = _auth_token(pw_role or "viewer")
+            st.rerun()
+
+        # ── Start Tutorial (disabled until verified) ────────────────────
         from dashboard.tutorial import render_tutorial_button
         render_tutorial_button(
             key_suffix="gate",
             chain=True,
             unlock=True,
-            label="🚀 Take the Full Tour",
+            label="🚀 Start Tutorial",
+            disabled=not pw_verified,
+            role=pw_role,
         )
+
+        st.page_link("pages/11_User_Guide.py", label="📖 Read the User Guide", use_container_width=True)
     st.stop()
 
 

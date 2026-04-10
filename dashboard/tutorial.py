@@ -246,23 +246,53 @@ STEPS = {
 
 # ── Public API ───────────────────────────────────────────────────────────
 
-def render_tutorial_button(key_suffix: str = "", chain: bool = False, unlock: bool = False, label: str = "🚀 Start Tutorial"):
+def render_tutorial_button(
+    key_suffix: str = "",
+    chain: bool = False,
+    unlock: bool = False,
+    label: str = "🚀 Start Tutorial",
+    disabled: bool = False,
+    role: str | None = None,
+    help: str | None = None,
+):
     """Render a 'Start Tutorial' button.
 
     Args:
         key_suffix: makes the Streamlit key unique per location.
         chain:      if True, runs the full multi-page tour.
-        unlock:     if True, also temporarily unlocks the password gate
-                    (used on the login screen so users can preview the app).
+        unlock:     if True, also flips the password gate to authenticated
+                    (used on the login screen after the password is verified).
+        disabled:   if True, the button is rendered greyed out and inactive.
+        role:       'admin' or 'viewer' — used together with unlock=True so
+                    the right role is granted when the tour starts.
+        help:       optional tooltip shown on hover (handy when disabled).
     """
     key = f"start_tut_btn_{key_suffix}" if key_suffix else "start_tut_btn"
-    if st.button(label, key=key, use_container_width=True, type="primary"):
+    clicked = st.button(
+        label,
+        key=key,
+        use_container_width=True,
+        type="primary",
+        disabled=disabled,
+        help=help,
+    )
+    if clicked:
         st.session_state["tut_active"] = True
         if chain:
             st.session_state["tut_chain"] = True
             st.session_state.pop("tut_chain_target", None)
         if unlock:
             st.session_state["site_authenticated"] = True
+            if role == "admin":
+                st.session_state["site_admin"] = True
+            elif role == "viewer":
+                st.session_state["site_admin"] = False
+            # Mirror auth into URL so a hard reload from the header still works.
+            try:
+                from dashboard.state import _auth_token
+                st.query_params["auth"] = _auth_token(role or "viewer")
+            except Exception:
+                pass
         st.rerun()
 
 

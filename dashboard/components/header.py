@@ -348,8 +348,15 @@ def render_page_header(current: str = "Home") -> None:
     _inject_global_css()
     _inject_header_css()
 
+    # Append ?auth=<token> to every link so that if the browser does a full
+    # page reload (instead of an in-app Streamlit navigation), the new page
+    # can restore auth from the query params instead of bouncing the user
+    # back to the login screen.
+    from dashboard.state import auth_query_string
+    qs = auth_query_string()
+
     parts = ['<div class="mm-header">']
-    parts.append('<a class="mm-home" href="/" target="_self">🏠 Home</a>')
+    parts.append(f'<a class="mm-home" href="/{qs}" target="_self">🏠 Home</a>')
     parts.append('<div class="mm-divider"></div>')
 
     for label, url, emoji in SECTIONS:
@@ -357,7 +364,7 @@ def render_page_header(current: str = "Home") -> None:
             continue  # already rendered as the prominent button
         cls = "mm-link mm-current" if label == current else "mm-link"
         parts.append(
-            f'<a class="{cls}" href="{url}" target="_self">{emoji} {label}</a>'
+            f'<a class="{cls}" href="{url}{qs}" target="_self">{emoji} {label}</a>'
         )
 
     parts.append("</div>")

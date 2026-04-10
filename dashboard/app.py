@@ -397,64 +397,6 @@ def main():
         unsafe_allow_html=True,
     )
 
-    # ── Quick-jump grid to every section (ghost cards on the 4-pt grid) ─
-    st.markdown(
-        """
-<style>
-.mm-jump-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
-    gap: 12px;
-    margin: 24px 0 8px 0;
-}
-.mm-jump-card {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 14px 16px;
-    background: var(--c-bg-1);
-    border-radius: 10px;
-    text-decoration: none;
-    color: var(--c-text-1);
-    font-size: 14px;
-    font-weight: 500;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.10);
-    transition: all 0.18s ease;
-    border-left: 3px solid transparent;
-}
-.mm-jump-card:hover {
-    background: var(--c-bg-2);
-    transform: translateY(-2px);
-    box-shadow: 0 4px 14px rgba(0,0,0,0.18);
-    border-left-color: var(--c-accent);
-    color: #ffffff;
-}
-.mm-jump-card:active { transform: translateY(0); }
-.mm-jump-card.mm-jump-featured {
-    background: var(--c-bg-2);
-    border-left-color: var(--c-accent);
-    box-shadow: 0 4px 14px rgba(0,0,0,0.18);
-}
-.mm-jump-card .mm-jump-emoji { font-size: 18px; }
-</style>
-<div class="mm-jump-grid">
-  <a class="mm-jump-card mm-jump-featured" href="/Analysis"      target="_self"><span class="mm-jump-emoji">🔍</span> Trade Scanner ⭐</a>
-  <a class="mm-jump-card" href="/Yield_Curve"   target="_self"><span class="mm-jump-emoji">📉</span> Yield Curve</a>
-  <a class="mm-jump-card" href="/Spreads"       target="_self"><span class="mm-jump-emoji">📊</span> Spreads</a>
-  <a class="mm-jump-card" href="/Regression"    target="_self"><span class="mm-jump-emoji">📐</span> Regression</a>
-  <a class="mm-jump-card" href="/PCA"           target="_self"><span class="mm-jump-emoji">🧮</span> PCA</a>
-  <a class="mm-jump-card" href="/Correlation"   target="_self"><span class="mm-jump-emoji">🔗</span> Correlation</a>
-  <a class="mm-jump-card" href="/Vol_Surface"   target="_self"><span class="mm-jump-emoji">🌊</span> Vol Surface</a>
-  <a class="mm-jump-card" href="/Trade_Tracker" target="_self"><span class="mm-jump-emoji">📒</span> Trade Tracker</a>
-  <a class="mm-jump-card" href="/Alerts"        target="_self"><span class="mm-jump-emoji">🔔</span> Alerts</a>
-  <a class="mm-jump-card" href="/Data_Sources"  target="_self"><span class="mm-jump-emoji">📡</span> Data Sources</a>
-  <a class="mm-jump-card" href="/Glossary"      target="_self"><span class="mm-jump-emoji">📖</span> Glossary</a>
-  <a class="mm-jump-card" href="/User_Guide"    target="_self"><span class="mm-jump-emoji">📘</span> User Guide</a>
-  <a class="mm-jump-card" href="/Feature_Request" target="_self"><span class="mm-jump-emoji">💡</span> Feature Request</a>
-</div>
-        """,
-        unsafe_allow_html=True,
-    )
     st.divider()
 
     # ── Lookback selector (top of page) ───────────────────────────────────
