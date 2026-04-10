@@ -292,3 +292,7 @@ if not closed.empty:
     st.download_button("Export Trade Log (CSV)", csv_data, "trade_log_export.csv", "text/csv")
 else:
     st.info("No closed trades yet. Close an open trade to start building your track record.")
+
+# ── Tutorial overlay (must be LAST) ────────────────────────────────────
+from dashboard.tutorial import render_tutorial
+render_tutorial(page="trade_tracker")

@@ -149,3 +149,7 @@ if credit_cols:
         st.plotly_chart(fig_c, use_container_width=True)
 else:
     st.info("Credit spread data not available. Add a FRED API key to .env for best results.")
+
+# ── Tutorial overlay (must be LAST) ────────────────────────────────────
+from dashboard.tutorial import render_tutorial
+render_tutorial(page="spreads")

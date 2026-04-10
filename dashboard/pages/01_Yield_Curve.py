@@ -161,3 +161,7 @@ if not ns_history.empty:
         legend=dict(orientation="h", yanchor="bottom", y=1.02),
     )
     st.plotly_chart(fig_ns, use_container_width=True)
+
+# ── Tutorial overlay (must be LAST) ────────────────────────────────────
+from dashboard.tutorial import render_tutorial
+render_tutorial(page="yield_curve")

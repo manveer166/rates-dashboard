@@ -246,3 +246,7 @@ st.plotly_chart(fig_smile, use_container_width=True)
 
 st.divider()
 st.caption("Volatility surface built from realised vols. Connect live swaption data for market-implied surface.")
+
+# ── Tutorial overlay (must be LAST) ────────────────────────────────────
+from dashboard.tutorial import render_tutorial
+render_tutorial(page="vol_surface")

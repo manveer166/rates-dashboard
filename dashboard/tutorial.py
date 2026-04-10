@@ -1,8 +1,13 @@
 """
-tutorial.py — Interactive guided tour using intro.js.
+tutorial.py — Interactive multi-page guided tour using intro.js.
 
 Injects intro.js into the parent Streamlit frame so it can highlight
 real DOM elements (sidebar, KPI cards, charts) with circles + tooltips.
+
+The tour can run in two modes:
+  • single-page: just runs the steps for the current page
+  • chained:    runs each page's tour, then auto-navigates to the next
+                page in PAGE_CHAIN until the chain is complete.
 """
 
 import json
@@ -11,105 +16,58 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 
-# ── Step definitions (Python dicts → serialised to JSON for JS) ─────────
+# ── Chain config ─────────────────────────────────────────────────────────
 
-WELCOME_STEPS = [
-    {
-        "title": "📈 Welcome to the Rates Dashboard",
-        "intro": (
-            "This tour walks you through every feature of the dashboard.<br><br>"
-            "Click <b>Next</b> to begin."
-        ),
-    },
-    {
-        "selector": '[data-testid="stTextInput"]',
-        "title": "🔐 Login",
-        "intro": (
-            "Enter the password <b>rates</b> here to unlock the dashboard."
-        ),
-        "position": "bottom",
-    },
-    {
-        "title": "🏠 Home — Market Overview",
-        "intro": (
-            "Inside, the <b>Home page</b> shows live KPIs for:<br><br>"
-            "• US Treasury yields (1Y – 30Y)<br>"
-            "• International yields (DE, UK, CH, JP)<br>"
-            "• SOFR swaps & credit spreads<br>"
-            "• Yield curve snapshot"
-        ),
-    },
-    {
-        "title": "📊 Yield Curve & Spreads",
-        "intro": (
-            "<b>Yield Curve page:</b> Curve evolution, butterflies, shape metrics.<br><br>"
-            "<b>Spreads page:</b> 2s10s, 5s30s, custom spreads with z-score bands."
-        ),
-    },
-    {
-        "title": "📐 Regression & PCA",
-        "intro": (
-            "<b>Regression:</b> Rolling OLS — find rich/cheap vs fair value.<br><br>"
-            "<b>PCA:</b> Decompose the curve into Level, Slope, Curvature."
-        ),
-    },
-    {
-        "title": "🔍 Trade Scanner",
-        "intro": (
-            "The most powerful page — scans <b>100+ trades</b> "
-            "(outrights, curves, flies) and ranks by Sharpe, z-score, "
-            "carry/rolldown, and convexity.<br><br>"
-            "Click any trade for a deep-dive."
-        ),
-    },
-    {
-        "title": "🌊 Vol Surface & Trade Tracker",
-        "intro": (
-            "<b>Vol Surface:</b> 3D swaption vol, heatmap, SABR smile.<br><br>"
-            "<b>Trade Tracker:</b> Log ideas with live levels, track P&L."
-        ),
-    },
-    {
-        "title": "🚀 Get Started",
-        "intro": (
-            "Enter the password <b>rates</b> and explore!<br><br>"
-            "Each page has its own <b>Start Tutorial</b> button for a deep dive."
-        ),
-    },
+PAGE_CHAIN = [
+    "home",
+    "yield_curve",
+    "spreads",
+    "regression",
+    "pca",
+    "analysis",
+    "vol_surface",
+    "trade_tracker",
 ]
+
+PAGE_URLS = {
+    "home":          "/",
+    "yield_curve":   "/Yield_Curve",
+    "spreads":       "/Spreads",
+    "regression":    "/Regression",
+    "pca":           "/PCA",
+    "analysis":      "/Analysis",
+    "vol_surface":   "/Vol_Surface",
+    "trade_tracker": "/Trade_Tracker",
+}
+
+
+# ── Step definitions ─────────────────────────────────────────────────────
 
 HOME_STEPS = [
     {
-        "title": "📈 Welcome",
-        "intro": "This tour highlights the key parts of the Home page. Click <b>Next</b>.",
+        "title": "📈 Welcome to the Rates Dashboard",
+        "intro": (
+            "This tour will walk you through every page of the dashboard.<br><br>"
+            "After each page, you'll be taken to the next one automatically. "
+            "Click <b>✕</b> at any time to exit."
+        ),
     },
     {
         "selector": '[data-testid="stSidebar"]',
         "title": "🎛️ Sidebar Controls",
         "intro": (
-            "The sidebar is your control centre.<br><br>"
+            "Your control centre.<br><br>"
             "<b>Quick Select:</b> Lookback period (3M – 5Y)<br>"
             "<b>Date Range:</b> Custom dates<br>"
-            "<b>Refresh:</b> Force reload from sources<br>"
-            "<b>Cache:</b> Data freshness"
+            "<b>Refresh:</b> Force reload from sources"
         ),
         "position": "right",
-    },
-    {
-        "selector": '[data-testid="stSelectSlider"]',
-        "title": "📅 Lookback Slider",
-        "intro": (
-            "Drag this to change the comparison period. KPI deltas and "
-            "charts update instantly. Try switching between 3M and 2Y."
-        ),
-        "position": "bottom",
     },
     {
         "selector": '[data-testid="stMetric"]',
         "title": "📋 KPI Metrics",
         "intro": (
-            "These cards show <b>current yields</b> and their <b>change</b> "
-            "vs the lookback period.<br><br>"
+            "Current yields and their change vs the lookback period.<br><br>"
             "🟢 Green = rates fell (good for receivers)<br>"
             "🔴 Red = rates rose"
         ),
@@ -119,9 +77,9 @@ HOME_STEPS = [
         "selector": ".js-plotly-plot",
         "title": "📉 Yield Curve Chart",
         "intro": (
-            "Compares <b>today's curve</b> vs the curve N months ago.<br><br>"
-            "<b>Hover</b> for exact values · <b>Click+drag</b> to zoom · "
-            "<b>Double-click</b> to reset"
+            "Today's curve vs the curve N months ago.<br><br>"
+            "<b>Hover</b> for exact values · <b>Zoom</b> by drag · "
+            "<b>Reset</b> by double-click"
         ),
         "position": "top",
     },
@@ -129,61 +87,239 @@ HOME_STEPS = [
         "selector": '[data-testid="stSidebarNav"]',
         "title": "🗂️ Page Navigation",
         "intro": (
-            "Use the sidebar nav to explore:<br><br>"
-            "• <b>Yield Curve</b> — shapes & evolution<br>"
-            "• <b>Spreads</b> — 2s10s, 5s30s + z-scores<br>"
-            "• <b>Regression</b> — rich/cheap analysis<br>"
-            "• <b>PCA</b> — level, slope, curvature<br>"
-            "• <b>Analysis</b> — Trade Scanner ⭐<br>"
-            "• <b>Vol Surface</b> — swaption vol<br>"
-            "• <b>Trade Tracker</b> — log & track ideas"
+            "Every page in the app is listed here. Up next: "
+            "<b>Yield Curve</b> for shape & evolution analysis."
         ),
         "position": "right",
     },
+]
+
+YIELD_CURVE_STEPS = [
     {
-        "title": "🔍 Start with the Trade Scanner",
+        "title": "📉 Yield Curve Page",
         "intro": (
-            "The <b>Analysis</b> page (Trade Scanner) is where actionable "
-            "ideas come from. It scans every outright, curve, and fly and "
-            "ranks them by Sharpe ratio.<br><br>"
-            "Open it from the sidebar to see for yourself!"
+            "This page shows the <b>full US Treasury curve</b> for any historical "
+            "date, fits a <b>Nelson-Siegel</b> model, and tracks how the curve "
+            "has evolved over time."
         ),
+    },
+    {
+        "selector": '[data-testid="stSelectbox"]',
+        "title": "📅 Date Pickers",
+        "intro": "Pick any date to snapshot the curve, plus a comparison date.",
+        "position": "bottom",
+    },
+    {
+        "selector": ".js-plotly-plot",
+        "title": "📈 Curve Snapshot",
+        "intro": (
+            "The fitted curve with all maturities. The <b>Nelson-Siegel</b> "
+            "model decomposes the curve into Level, Slope and Curvature."
+        ),
+        "position": "top",
+    },
+]
+
+SPREADS_STEPS = [
+    {
+        "title": "📊 Spreads Page",
+        "intro": (
+            "Track <b>2s10s</b>, <b>5s30s</b>, and any custom spread "
+            "with z-score bands and percentile rankings."
+        ),
+    },
+    {
+        "selector": ".js-plotly-plot",
+        "title": "📉 Spread History",
+        "intro": (
+            "Spreads over time with mean ± 1σ bands. Z-scores tell you "
+            "if a spread is rich or cheap relative to its history."
+        ),
+        "position": "top",
+    },
+]
+
+REGRESSION_STEPS = [
+    {
+        "title": "📐 Regression Page",
+        "intro": (
+            "Run <b>rolling OLS</b> to find which bonds are rich or cheap "
+            "relative to their fair value implied by the rest of the curve."
+        ),
+    },
+    {
+        "selector": ".js-plotly-plot",
+        "title": "📈 Residuals Chart",
+        "intro": (
+            "The residual line shows mispricing. Above zero = rich (sell), "
+            "below zero = cheap (buy)."
+        ),
+        "position": "top",
+    },
+]
+
+PCA_STEPS = [
+    {
+        "title": "🧮 PCA Page",
+        "intro": (
+            "Decompose the yield curve into its <b>3 principal components</b>:<br><br>"
+            "• <b>PC1 = Level</b> (parallel shifts)<br>"
+            "• <b>PC2 = Slope</b> (steepening / flattening)<br>"
+            "• <b>PC3 = Curvature</b> (butterflies)"
+        ),
+    },
+    {
+        "selector": ".js-plotly-plot",
+        "title": "📊 PCA Charts",
+        "intro": "Visualises the loading and history of each component.",
+        "position": "top",
+    },
+]
+
+ANALYSIS_STEPS = [
+    {
+        "title": "🔍 Trade Scanner — The Star",
+        "intro": (
+            "The most powerful page. Scans <b>100+ trades</b> "
+            "(outrights, curves, butterflies) and ranks them by:<br><br>"
+            "• Sharpe ratio<br>"
+            "• Z-score<br>"
+            "• Carry & rolldown<br>"
+            "• Convexity"
+        ),
+    },
+    {
+        "selector": '[data-testid="stDataFrame"]',
+        "title": "📋 Ranked Trade Table",
+        "intro": (
+            "Click any row to drill into a trade — see history, "
+            "z-score, regression fit, and recommended sizing."
+        ),
+        "position": "top",
+    },
+]
+
+VOL_SURFACE_STEPS = [
+    {
+        "title": "🌊 Vol Surface Page",
+        "intro": (
+            "<b>Swaption implied volatility</b> across strike and expiry.<br><br>"
+            "3D surface, heatmap and SABR-fitted smile."
+        ),
+    },
+    {
+        "selector": ".js-plotly-plot",
+        "title": "🌐 3D Vol Surface",
+        "intro": "Drag to rotate. The smile shape tells you about skew and kurtosis pricing.",
+        "position": "top",
+    },
+]
+
+TRADE_TRACKER_STEPS = [
+    {
+        "title": "📒 Trade Tracker — Final Stop",
+        "intro": (
+            "Log your trade ideas with entry levels, then track live P&L "
+            "as the market moves.<br><br>"
+            "<b>You've completed the full tour!</b> Click <b>Finish ✓</b> to exit."
+        ),
+    },
+    {
+        "selector": '[data-testid="stForm"]',
+        "title": "✍️ Log a Trade",
+        "intro": "Fill in the trade details to add an idea to your tracker.",
+        "position": "top",
     },
 ]
 
 STEPS = {
-    "welcome": WELCOME_STEPS,
-    "home": HOME_STEPS,
+    "home":          HOME_STEPS,
+    "yield_curve":   YIELD_CURVE_STEPS,
+    "spreads":       SPREADS_STEPS,
+    "regression":    REGRESSION_STEPS,
+    "pca":           PCA_STEPS,
+    "analysis":      ANALYSIS_STEPS,
+    "vol_surface":   VOL_SURFACE_STEPS,
+    "trade_tracker": TRADE_TRACKER_STEPS,
 }
 
 
 # ── Public API ───────────────────────────────────────────────────────────
 
-def render_tutorial_button(key_suffix: str = ""):
-    """Render the 'Start Tutorial' button. Sets session state to launch the tour."""
+def render_tutorial_button(key_suffix: str = "", chain: bool = False, unlock: bool = False, label: str = "🚀 Start Tutorial"):
+    """Render a 'Start Tutorial' button.
+
+    Args:
+        key_suffix: makes the Streamlit key unique per location.
+        chain:      if True, runs the full multi-page tour.
+        unlock:     if True, also temporarily unlocks the password gate
+                    (used on the login screen so users can preview the app).
+    """
     key = f"start_tut_btn_{key_suffix}" if key_suffix else "start_tut_btn"
-    if st.button("🚀 Start Tutorial", key=key, use_container_width=True, type="primary"):
+    if st.button(label, key=key, use_container_width=True, type="primary"):
         st.session_state["tut_active"] = True
+        if chain:
+            st.session_state["tut_chain"] = True
+            st.session_state.pop("tut_chain_target", None)
+        if unlock:
+            st.session_state["site_authenticated"] = True
         st.rerun()
 
 
-def render_tutorial(page: str = "welcome"):
-    """Inject intro.js into the parent frame and run the tour. Call AFTER all
-    page content has rendered so the DOM elements exist."""
+def render_tutorial(page: str = "home"):
+    """Inject intro.js into the parent frame and run the tour for `page`.
+
+    Call AFTER all page content has rendered so the DOM elements exist.
+    Handles both single-page and chained multi-page modes.
+    """
+    # Auto-activate when chained tour reaches the expected next page
+    chain_active = st.session_state.get("tut_chain", False)
+    chain_target = st.session_state.get("tut_chain_target")
+
+    if chain_active:
+        if chain_target is None:
+            # First page of a fresh chain — keep whatever tut_active was set
+            pass
+        elif chain_target == page:
+            st.session_state["tut_active"] = True
+        else:
+            # User exited the chain and navigated elsewhere — clear it
+            st.session_state["tut_chain"] = False
+            st.session_state.pop("tut_chain_target", None)
+            chain_active = False
+
     if not st.session_state.get("tut_active"):
         return
 
     # Clear flag immediately so it doesn't re-fire on next rerun
     st.session_state["tut_active"] = False
 
-    steps = STEPS.get(page, WELCOME_STEPS)
+    # Compute next page in the chain (if any)
+    next_url = None
+    if chain_active:
+        try:
+            idx = PAGE_CHAIN.index(page)
+            if idx + 1 < len(PAGE_CHAIN):
+                next_page = PAGE_CHAIN[idx + 1]
+                next_url = PAGE_URLS[next_page]
+                st.session_state["tut_chain_target"] = next_page
+            else:
+                # Chain complete
+                st.session_state["tut_chain"] = False
+                st.session_state.pop("tut_chain_target", None)
+        except ValueError:
+            pass
+
+    steps = STEPS.get(page, HOME_STEPS)
     steps_json = json.dumps(steps)
+    next_url_js = json.dumps(next_url) if next_url else "null"
 
     components.html(
         f"""
 <script>
 (function() {{
     const stepsData = {steps_json};
+    const nextUrl = {next_url_js};
 
     function runTour() {{
         try {{
@@ -216,9 +352,9 @@ def render_tutorial(page: str = "welcome"):
                 steps: resolved,
                 showProgress: true,
                 showBullets: false,
-                exitOnOverlayClick: true,
+                exitOnOverlayClick: false,
                 showStepNumbers: true,
-                doneLabel: 'Finish ✓',
+                doneLabel: nextUrl ? 'Next page →' : 'Finish ✓',
                 nextLabel: 'Next →',
                 prevLabel: '← Back',
                 skipLabel: '✕',
@@ -227,6 +363,18 @@ def render_tutorial(page: str = "welcome"):
                 scrollPadding: 80,
                 disableInteraction: false,
             }});
+
+            // Chain navigation: when the user finishes the last step,
+            // jump to the next page in the chain.
+            intro.oncomplete(function() {{
+                if (nextUrl) {{
+                    setTimeout(() => {{
+                        try {{ parentWin.location.href = nextUrl; }}
+                        catch (e) {{ console.error('Navigation failed:', e); }}
+                    }}, 250);
+                }}
+            }});
+
             intro.start();
         }} catch (err) {{
             console.error('Tutorial error:', err);

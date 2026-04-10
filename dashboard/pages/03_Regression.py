@@ -205,3 +205,7 @@ if st.button("▶️ Run Rolling Regression", type="primary"):
         c3.metric("Beta Std Dev",  f"{rr['beta'].std():.4f}")
     else:
         st.warning("Not enough data for rolling regression with the selected window.")
+
+# ── Tutorial overlay (must be LAST) ────────────────────────────────────
+from dashboard.tutorial import render_tutorial
+render_tutorial(page="regression")

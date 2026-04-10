@@ -154,3 +154,7 @@ if len(scores.columns) >= 2:
     )
     st.plotly_chart(fig_scat, use_container_width=True)
     st.caption("Colour gradient from dark (oldest) to bright (most recent).")
+
+# ── Tutorial overlay (must be LAST) ────────────────────────────────────
+from dashboard.tutorial import render_tutorial
+render_tutorial(page="pca")

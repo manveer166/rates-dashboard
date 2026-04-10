@@ -1495,3 +1495,7 @@ elif section.startswith("10"):
 
     st.divider()
     st.caption(f"Data: {len(df)} rows  |  {df.index[0].date()} → {df.index[-1].date()}  |  O/N rate: {on_rate:.3f}%")
+
+# ── Tutorial overlay (must be LAST) ────────────────────────────────────
+from dashboard.tutorial import render_tutorial
+render_tutorial(page="analysis")

@@ -111,9 +111,13 @@ def password_gate() -> None:
                 else:
                     st.error("Incorrect password.")
         st.page_link("pages/11_User_Guide.py", label="How to use", use_container_width=True)
-        from dashboard.tutorial import render_tutorial_button, render_tutorial
-        render_tutorial_button(key_suffix="gate")
-        render_tutorial(page="welcome")
+        from dashboard.tutorial import render_tutorial_button
+        render_tutorial_button(
+            key_suffix="gate",
+            chain=True,
+            unlock=True,
+            label="🚀 Take the Full Tour",
+        )
     st.stop()
 
 
