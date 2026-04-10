@@ -11,6 +11,7 @@ The tour can run in two modes:
 """
 
 import json
+from typing import Optional
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -252,8 +253,8 @@ def render_tutorial_button(
     unlock: bool = False,
     label: str = "🚀 Start Tutorial",
     disabled: bool = False,
-    role: str | None = None,
-    help: str | None = None,
+    role: Optional[str] = None,
+    help: Optional[str] = None,
 ):
     """Render a 'Start Tutorial' button.
 
