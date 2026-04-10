@@ -296,6 +296,7 @@ def render_tutorial(page: str = "home"):
 
     # Compute next page in the chain (if any)
     next_url = None
+    finish_url = None  # used on the LAST page of the chain
     if chain_active:
         try:
             idx = PAGE_CHAIN.index(page)
@@ -304,7 +305,8 @@ def render_tutorial(page: str = "home"):
                 next_url = PAGE_URLS[next_page]
                 st.session_state["tut_chain_target"] = next_page
             else:
-                # Chain complete
+                # Chain complete — return to Home when user clicks Finish
+                finish_url = PAGE_URLS["home"]
                 st.session_state["tut_chain"] = False
                 st.session_state.pop("tut_chain_target", None)
         except ValueError:
@@ -313,6 +315,7 @@ def render_tutorial(page: str = "home"):
     steps = STEPS.get(page, HOME_STEPS)
     steps_json = json.dumps(steps)
     next_url_js = json.dumps(next_url) if next_url else "null"
+    finish_url_js = json.dumps(finish_url) if finish_url else "null"
 
     components.html(
         f"""
@@ -320,6 +323,7 @@ def render_tutorial(page: str = "home"):
 (function() {{
     const stepsData = {steps_json};
     const nextUrl = {next_url_js};
+    const finishUrl = {finish_url_js};
 
     function runTour() {{
         try {{
@@ -354,7 +358,7 @@ def render_tutorial(page: str = "home"):
                 showBullets: false,
                 exitOnOverlayClick: false,
                 showStepNumbers: true,
-                doneLabel: nextUrl ? 'Next page →' : 'Finish ✓',
+                doneLabel: nextUrl ? 'Next page →' : (finishUrl ? 'Finish & go Home 🏠' : 'Finish ✓'),
                 nextLabel: 'Next →',
                 prevLabel: '← Back',
                 skipLabel: '✕',
@@ -365,11 +369,13 @@ def render_tutorial(page: str = "home"):
             }});
 
             // Chain navigation: when the user finishes the last step,
-            // jump to the next page in the chain.
+            // jump to the next page in the chain — or back to Home if
+            // this is the final page of the chain.
             intro.oncomplete(function() {{
-                if (nextUrl) {{
+                const target = nextUrl || finishUrl;
+                if (target) {{
                     setTimeout(() => {{
-                        try {{ parentWin.location.href = nextUrl; }}
+                        try {{ parentWin.location.href = target; }}
                         catch (e) {{ console.error('Navigation failed:', e); }}
                     }}, 250);
                 }}
