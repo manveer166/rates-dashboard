@@ -1,155 +1,152 @@
 """
-tutorial.py — Native Streamlit guided tour.
+tutorial.py — Interactive guided tour using intro.js.
 
-Uses st.dialog for a modal walkthrough of dashboard features.
-No external JS dependencies — works reliably on Streamlit Cloud.
+Injects intro.js into the parent Streamlit frame so it can highlight
+real DOM elements (sidebar, KPI cards, charts) with circles + tooltips.
 """
 
+import json
+
 import streamlit as st
+import streamlit.components.v1 as components
 
 
-# ── Step definitions ─────────────────────────────────────────────────────
+# ── Step definitions (Python dicts → serialised to JSON for JS) ─────────
 
 WELCOME_STEPS = [
     {
-        "title": "Welcome to the Rates Dashboard",
-        "icon": "📈",
-        "body": (
-            "This tutorial walks you through every feature of the dashboard.\n\n"
-            "Click **Next** to preview what's inside."
+        "title": "📈 Welcome to the Rates Dashboard",
+        "intro": (
+            "This tour walks you through every feature of the dashboard.<br><br>"
+            "Click <b>Next</b> to begin."
         ),
     },
     {
-        "title": "Home — Market Overview",
-        "icon": "🏠",
-        "body": (
-            "The **Home page** shows live KPI metrics for:\n\n"
-            "- **US Treasury yields** (1Y – 30Y)\n"
-            "- **International yields** (DE, UK, CH, JP)\n"
-            "- **SOFR swaps & credit spreads** (IG, HY, BBB)\n"
-            "- **Yield curve snapshot** — today vs N months ago\n\n"
-            "Every metric shows the change vs your chosen lookback period."
+        "selector": '[data-testid="stTextInput"]',
+        "title": "🔐 Login",
+        "intro": (
+            "Enter the password <b>rates</b> here to unlock the dashboard."
+        ),
+        "position": "bottom",
+    },
+    {
+        "title": "🏠 Home — Market Overview",
+        "intro": (
+            "Inside, the <b>Home page</b> shows live KPIs for:<br><br>"
+            "• US Treasury yields (1Y – 30Y)<br>"
+            "• International yields (DE, UK, CH, JP)<br>"
+            "• SOFR swaps & credit spreads<br>"
+            "• Yield curve snapshot"
         ),
     },
     {
-        "title": "Yield Curve & Spreads",
-        "icon": "📊",
-        "body": (
-            "**Yield Curve page:** Animated curve evolution, butterfly analysis, "
-            "and curve shape metrics.\n\n"
-            "**Spreads page:** 2s10s, 5s30s, and custom spreads with z-score "
-            "bands and percentile rankings."
+        "title": "📊 Yield Curve & Spreads",
+        "intro": (
+            "<b>Yield Curve page:</b> Curve evolution, butterflies, shape metrics.<br><br>"
+            "<b>Spreads page:</b> 2s10s, 5s30s, custom spreads with z-score bands."
         ),
     },
     {
-        "title": "Regression & PCA",
-        "icon": "📐",
-        "body": (
-            "**Regression:** Run rolling OLS on any two series — find rich/cheap "
-            "vs fair value, with residual z-scores.\n\n"
-            "**PCA:** Decompose the curve into Level, Slope, and Curvature factors. "
-            "See how much each explains."
+        "title": "📐 Regression & PCA",
+        "intro": (
+            "<b>Regression:</b> Rolling OLS — find rich/cheap vs fair value.<br><br>"
+            "<b>PCA:</b> Decompose the curve into Level, Slope, Curvature."
         ),
     },
     {
-        "title": "Trade Scanner (Analysis)",
-        "icon": "🔍",
-        "body": (
-            "The most powerful page — scans **100+ outright, curve, and fly trades** "
-            "and ranks them by:\n\n"
-            "- **Sharpe ratio** — risk-adjusted expected return\n"
-            "- **Z-score** — how cheap/rich vs history\n"
-            "- **Carry + Rolldown** — income from holding\n"
-            "- **Net Convexity** — DV01-weighted convexity pickup\n\n"
-            "Click any trade for a deep-dive detail panel with charts."
+        "title": "🔍 Trade Scanner",
+        "intro": (
+            "The most powerful page — scans <b>100+ trades</b> "
+            "(outrights, curves, flies) and ranks by Sharpe, z-score, "
+            "carry/rolldown, and convexity.<br><br>"
+            "Click any trade for a deep-dive."
         ),
     },
     {
-        "title": "Vol Surface & Trade Tracker",
-        "icon": "🌊",
-        "body": (
-            "**Vol Surface:** 3D swaption vol surface, heatmap, and SABR smile estimator.\n\n"
-            "**Trade Tracker:** Log trade ideas with live entry levels, track P&L in "
-            "real-time, and see your win rate and cumulative performance."
+        "title": "🌊 Vol Surface & Trade Tracker",
+        "intro": (
+            "<b>Vol Surface:</b> 3D swaption vol, heatmap, SABR smile.<br><br>"
+            "<b>Trade Tracker:</b> Log ideas with live levels, track P&L."
         ),
     },
     {
-        "title": "Alerts, Glossary & More",
-        "icon": "🔔",
-        "body": (
-            "**Alerts:** Set up email notifications for top scanner movers.\n\n"
-            "**Glossary:** Definitions for every metric and column.\n\n"
-            "**Feature Request:** Submit ideas directly.\n\n"
-            "---\n"
-            "Enter the password **rates** to get started!"
+        "title": "🚀 Get Started",
+        "intro": (
+            "Enter the password <b>rates</b> and explore!<br><br>"
+            "Each page has its own <b>Start Tutorial</b> button for a deep dive."
         ),
     },
 ]
 
 HOME_STEPS = [
     {
-        "title": "Welcome",
-        "icon": "📈",
-        "body": (
-            "This tutorial highlights the key features of the **Home page**.\n\n"
-            "Click **Next** to begin."
-        ),
+        "title": "📈 Welcome",
+        "intro": "This tour highlights the key parts of the Home page. Click <b>Next</b>.",
     },
     {
-        "title": "Sidebar Controls",
-        "icon": "🎛️",
-        "body": (
-            "The **sidebar** (left panel) is your control centre:\n\n"
-            "- **Quick Select:** Set lookback period (3M to 5Y)\n"
-            "- **Date Range:** Custom start/end dates\n"
-            "- **Refresh Data:** Force reload from all sources\n"
-            "- **Cache:** Shows how fresh your data is"
+        "selector": '[data-testid="stSidebar"]',
+        "title": "🎛️ Sidebar Controls",
+        "intro": (
+            "The sidebar is your control centre.<br><br>"
+            "<b>Quick Select:</b> Lookback period (3M – 5Y)<br>"
+            "<b>Date Range:</b> Custom dates<br>"
+            "<b>Refresh:</b> Force reload from sources<br>"
+            "<b>Cache:</b> Data freshness"
         ),
+        "position": "right",
     },
     {
-        "title": "KPI Metrics",
-        "icon": "📋",
-        "body": (
-            "The metric cards show **current yields** and their **change** "
-            "vs the lookback period.\n\n"
-            "- Green arrow = rates fell (good for receivers)\n"
-            "- Red arrow = rates rose"
+        "selector": '[data-testid="stSelectSlider"]',
+        "title": "📅 Lookback Slider",
+        "intro": (
+            "Drag this to change the comparison period. KPI deltas and "
+            "charts update instantly. Try switching between 3M and 2Y."
         ),
+        "position": "bottom",
     },
     {
-        "title": "Yield Curve Snapshot",
-        "icon": "📉",
-        "body": (
-            "The chart compares **today's yield curve** vs the curve N months ago.\n\n"
-            "- **Hover** for exact values\n"
-            "- **Click+drag** to zoom\n"
-            "- **Double-click** to reset"
+        "selector": '[data-testid="stMetric"]',
+        "title": "📋 KPI Metrics",
+        "intro": (
+            "These cards show <b>current yields</b> and their <b>change</b> "
+            "vs the lookback period.<br><br>"
+            "🟢 Green = rates fell (good for receivers)<br>"
+            "🔴 Red = rates rose"
         ),
+        "position": "bottom",
     },
     {
-        "title": "Lookback Slider",
-        "icon": "📅",
-        "body": (
-            "Drag the slider to change the comparison period. "
-            "KPI deltas and charts update instantly.\n\n"
-            "Try switching between **3 Months** and **2 Years** to see "
-            "how the curve evolved."
+        "selector": ".js-plotly-plot",
+        "title": "📉 Yield Curve Chart",
+        "intro": (
+            "Compares <b>today's curve</b> vs the curve N months ago.<br><br>"
+            "<b>Hover</b> for exact values · <b>Click+drag</b> to zoom · "
+            "<b>Double-click</b> to reset"
         ),
+        "position": "top",
     },
     {
-        "title": "Explore the Pages",
-        "icon": "🗂️",
-        "body": (
-            "Use the **sidebar navigation** to explore:\n\n"
-            "- **Yield Curve** — curve shapes & evolution\n"
-            "- **Spreads** — 2s10s, 5s30s with z-scores\n"
-            "- **Regression** — rich/cheap analysis\n"
-            "- **PCA** — level, slope, curvature factors\n"
-            "- **Analysis** — the Trade Scanner (most important!)\n"
-            "- **Vol Surface** — swaption vol visualisation\n"
-            "- **Trade Tracker** — log & track your ideas\n\n"
-            "The **Trade Scanner** on the Analysis page is where trade ideas "
-            "come from. Start there!"
+        "selector": '[data-testid="stSidebarNav"]',
+        "title": "🗂️ Page Navigation",
+        "intro": (
+            "Use the sidebar nav to explore:<br><br>"
+            "• <b>Yield Curve</b> — shapes & evolution<br>"
+            "• <b>Spreads</b> — 2s10s, 5s30s + z-scores<br>"
+            "• <b>Regression</b> — rich/cheap analysis<br>"
+            "• <b>PCA</b> — level, slope, curvature<br>"
+            "• <b>Analysis</b> — Trade Scanner ⭐<br>"
+            "• <b>Vol Surface</b> — swaption vol<br>"
+            "• <b>Trade Tracker</b> — log & track ideas"
+        ),
+        "position": "right",
+    },
+    {
+        "title": "🔍 Start with the Trade Scanner",
+        "intro": (
+            "The <b>Analysis</b> page (Trade Scanner) is where actionable "
+            "ideas come from. It scans every outright, curve, and fly and "
+            "ranks them by Sharpe ratio.<br><br>"
+            "Open it from the sidebar to see for yourself!"
         ),
     },
 ]
@@ -163,85 +160,213 @@ STEPS = {
 # ── Public API ───────────────────────────────────────────────────────────
 
 def render_tutorial_button(key_suffix: str = ""):
-    """Render the 'Start Tutorial' button. Sets session state to open the tour."""
+    """Render the 'Start Tutorial' button. Sets session state to launch the tour."""
     key = f"start_tut_btn_{key_suffix}" if key_suffix else "start_tut_btn"
-    if st.button("Start Tutorial", key=key, use_container_width=True):
+    if st.button("🚀 Start Tutorial", key=key, use_container_width=True, type="primary"):
         st.session_state["tut_active"] = True
-        st.session_state["tut_step"] = 0
         st.rerun()
 
 
 def render_tutorial(page: str = "welcome"):
-    """Render the tutorial modal if active. Call on every page that has a tutorial."""
+    """Inject intro.js into the parent frame and run the tour. Call AFTER all
+    page content has rendered so the DOM elements exist."""
     if not st.session_state.get("tut_active"):
         return
 
+    # Clear flag immediately so it doesn't re-fire on next rerun
+    st.session_state["tut_active"] = False
+
     steps = STEPS.get(page, WELCOME_STEPS)
-    step_idx = st.session_state.get("tut_step", 0)
-    step_idx = min(step_idx, len(steps) - 1)
-    step = steps[step_idx]
+    steps_json = json.dumps(steps)
 
-    # ── Modal container ──────────────────────────────────────────────────
-    st.markdown("""
-    <style>
-    .tut-overlay {
-        position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-        background: rgba(0,0,0,0.65); z-index: 99998;
-    }
-    .tut-card {
-        position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-        background: #1a1a2e; border: 1px solid #333; border-radius: 16px;
-        padding: 32px 36px 24px; max-width: 520px; width: 90vw;
-        z-index: 99999; box-shadow: 0 20px 60px rgba(0,0,0,0.5);
-        font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-    }
-    .tut-card h2 { color: #4fc3f7; margin: 0 0 6px; font-size: 22px; }
-    .tut-progress {
-        color: #666; font-size: 12px; margin-bottom: 16px;
-        letter-spacing: 0.5px;
-    }
-    .tut-bar { height: 3px; background: #333; border-radius: 2px; margin-bottom: 20px; }
-    .tut-bar-fill { height: 100%; background: #4fc3f7; border-radius: 2px; transition: width 0.3s; }
-    </style>
-    """, unsafe_allow_html=True)
+    components.html(
+        f"""
+<script>
+(function() {{
+    const stepsData = {steps_json};
 
-    pct = int(((step_idx + 1) / len(steps)) * 100)
-    st.markdown(f"""
-    <div class="tut-overlay"></div>
-    <div class="tut-card">
-        <h2>{step['icon']} {step['title']}</h2>
-        <div class="tut-progress">Step {step_idx + 1} of {len(steps)}</div>
-        <div class="tut-bar"><div class="tut-bar-fill" style="width:{pct}%"></div></div>
-    </div>
-    """, unsafe_allow_html=True)
+    function runTour() {{
+        try {{
+            const parentDoc = window.parent.document;
+            const parentWin = window.parent;
 
-    # Body text via Streamlit markdown (supports full formatting)
-    with st.container():
-        st.markdown(step["body"])
+            if (!parentWin.introJs) {{
+                console.warn('intro.js not loaded yet, retrying...');
+                setTimeout(runTour, 300);
+                return;
+            }}
 
-    # ── Navigation buttons ───────────────────────────────────────────────
-    bcols = st.columns([1, 1, 1])
-    with bcols[0]:
-        if step_idx > 0:
-            if st.button("← Back", key="tut_back", use_container_width=True):
-                st.session_state["tut_step"] = step_idx - 1
-                st.rerun()
-    with bcols[1]:
-        if st.button("✕ Exit", key="tut_exit", use_container_width=True):
-            st.session_state["tut_active"] = False
-            st.session_state["tut_step"] = 0
-            st.rerun()
-    with bcols[2]:
-        if step_idx < len(steps) - 1:
-            if st.button("Next →", key="tut_next", type="primary", use_container_width=True):
-                st.session_state["tut_step"] = step_idx + 1
-                st.rerun()
-        else:
-            if st.button("Finish ✓", key="tut_finish", type="primary", use_container_width=True):
-                st.session_state["tut_active"] = False
-                st.session_state["tut_step"] = 0
-                st.rerun()
+            // Resolve selectors to real elements
+            const resolved = stepsData.map(s => {{
+                const out = {{ title: s.title, intro: s.intro }};
+                if (s.position) out.position = s.position;
+                if (s.selector) {{
+                    const el = parentDoc.querySelector(s.selector);
+                    if (el) {{
+                        out.element = el;
+                    }} else {{
+                        console.warn('Selector not found:', s.selector);
+                    }}
+                }}
+                return out;
+            }});
+
+            const intro = parentWin.introJs();
+            intro.setOptions({{
+                steps: resolved,
+                showProgress: true,
+                showBullets: false,
+                exitOnOverlayClick: true,
+                showStepNumbers: true,
+                doneLabel: 'Finish ✓',
+                nextLabel: 'Next →',
+                prevLabel: '← Back',
+                skipLabel: '✕',
+                tooltipPosition: 'auto',
+                scrollToElement: true,
+                scrollPadding: 80,
+                disableInteraction: false,
+            }});
+            intro.start();
+        }} catch (err) {{
+            console.error('Tutorial error:', err);
+        }}
+    }}
+
+    function injectAndRun() {{
+        const parentDoc = window.parent.document;
+        const parentWin = window.parent;
+
+        // Already loaded?
+        if (parentWin.introJs) {{
+            runTour();
+            return;
+        }}
+
+        // Inject CSS
+        if (!parentDoc.getElementById('introjs-css')) {{
+            const css = parentDoc.createElement('link');
+            css.id = 'introjs-css';
+            css.rel = 'stylesheet';
+            css.href = 'https://cdn.jsdelivr.net/npm/intro.js@7.2.0/minified/introjs.min.css';
+            parentDoc.head.appendChild(css);
+        }}
+
+        // Inject custom dark-theme styles
+        if (!parentDoc.getElementById('introjs-custom-css')) {{
+            const customCss = parentDoc.createElement('style');
+            customCss.id = 'introjs-custom-css';
+            customCss.textContent = `
+                .introjs-tooltip {{
+                    background: #1a1a2e !important;
+                    color: #e0e0e0 !important;
+                    border: 1px solid #4fc3f7 !important;
+                    border-radius: 12px !important;
+                    max-width: 440px !important;
+                    min-width: 320px !important;
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+                    box-shadow: 0 20px 60px rgba(0,0,0,0.6) !important;
+                }}
+                .introjs-tooltip-title {{
+                    color: #4fc3f7 !important;
+                    font-size: 17px !important;
+                    font-weight: 600 !important;
+                }}
+                .introjs-tooltiptext {{
+                    font-size: 14px !important;
+                    line-height: 1.6 !important;
+                    color: #ddd !important;
+                }}
+                .introjs-tooltipbuttons {{
+                    border-top: 1px solid #333 !important;
+                }}
+                .introjs-button {{
+                    background: #283593 !important;
+                    color: white !important;
+                    border: none !important;
+                    border-radius: 6px !important;
+                    padding: 8px 18px !important;
+                    font-size: 13px !important;
+                    text-shadow: none !important;
+                    font-weight: 500 !important;
+                }}
+                .introjs-button:hover {{
+                    background: #3949ab !important;
+                    color: white !important;
+                }}
+                .introjs-button:focus {{
+                    box-shadow: 0 0 0 2px #4fc3f7 !important;
+                }}
+                .introjs-disabled {{
+                    background: #444 !important;
+                    color: #888 !important;
+                }}
+                .introjs-skipbutton {{
+                    color: #888 !important;
+                    background: transparent !important;
+                    font-size: 18px !important;
+                }}
+                .introjs-skipbutton:hover {{
+                    color: #fff !important;
+                }}
+                .introjs-helperLayer {{
+                    border-radius: 8px !important;
+                    box-shadow:
+                        0 0 0 5000px rgba(0,0,0,0.7),
+                        0 0 0 4px #4fc3f7,
+                        0 0 30px rgba(79, 195, 247, 0.6) !important;
+                    transition: all 0.3s ease !important;
+                }}
+                .introjs-helperNumberLayer {{
+                    background: #4fc3f7 !important;
+                    color: #1a1a2e !important;
+                    font-weight: 700 !important;
+                    border: 2px solid #1a1a2e !important;
+                    text-shadow: none !important;
+                }}
+                .introjs-progress {{
+                    background: #333 !important;
+                    height: 4px !important;
+                }}
+                .introjs-progressbar {{
+                    background: #4fc3f7 !important;
+                }}
+                .introjs-arrow.top {{ border-bottom-color: #1a1a2e !important; }}
+                .introjs-arrow.bottom {{ border-top-color: #1a1a2e !important; }}
+                .introjs-arrow.left {{ border-right-color: #1a1a2e !important; }}
+                .introjs-arrow.right {{ border-left-color: #1a1a2e !important; }}
+                .introjs-floating {{
+                    border: 2px solid #4fc3f7 !important;
+                }}
+            `;
+            parentDoc.head.appendChild(customCss);
+        }}
+
+        // Inject script
+        const existing = parentDoc.getElementById('introjs-script');
+        if (existing) {{
+            existing.remove();
+        }}
+        const script = parentDoc.createElement('script');
+        script.id = 'introjs-script';
+        script.src = 'https://cdn.jsdelivr.net/npm/intro.js@7.2.0/intro.min.js';
+        script.onload = function() {{
+            setTimeout(runTour, 300);
+        }};
+        script.onerror = function() {{
+            console.error('Failed to load intro.js');
+        }};
+        parentDoc.head.appendChild(script);
+    }}
+
+    // Wait briefly for parent DOM to settle, then inject
+    setTimeout(injectAndRun, 200);
+}})();
+</script>
+        """,
+        height=1,
+    )
 
 
-# Keep old name as alias for backwards compat
+# Backwards-compat alias
 render_tutorial_overlay = render_tutorial
