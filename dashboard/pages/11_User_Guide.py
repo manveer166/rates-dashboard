@@ -8,8 +8,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import streamlit as st
 
+from dashboard.components.header import render_page_header
+
 st.set_page_config(page_title="User Guide", page_icon="📘", layout="wide")
 # No password gate — accessible from login page via "How to use" button
+render_page_header(current="Guide")
 
 # ══════════════════════════════════════════════════════════════════════════
 # MODE: Landing vs Tutorial

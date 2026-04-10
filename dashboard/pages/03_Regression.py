@@ -11,11 +11,13 @@ import streamlit.components.v1 as components
 from analysis.regression import run_ols, run_rolling_regression
 from config import PLOTLY_THEME, TENOR_LABELS, CORP_SPREAD_SERIES, MACRO_SERIES
 from dashboard.components.controls import render_sidebar_controls
+from dashboard.components.header import render_page_header
 from dashboard.state import get_master_df, init_session_state
 
 st.set_page_config(page_title="Regression", page_icon="🔬", layout="wide")
 init_session_state()
 render_sidebar_controls()
+render_page_header(current="Regression")
 
 st.title("🔬 Regression Analysis")
 st.markdown("OLS and rolling regression between rates, spreads, and macro variables.")

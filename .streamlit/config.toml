@@ -6,10 +6,11 @@ enableXsrfProtection = false
 
 [theme]
 base = "dark"
-primaryColor = "#4fc3f7"
-backgroundColor = "#0e1117"
-secondaryBackgroundColor = "#161b27"
-textColor = "#e0e0e0"
+# Bloomberg-style layered blue palette
+primaryColor            = "#4fc3f7"   # cyan-blue accent for buttons / highlights
+backgroundColor         = "#0a1628"   # deepest navy — main canvas
+secondaryBackgroundColor = "#142847"  # mid navy — sidebar, cards, inputs
+textColor               = "#e8eef9"   # cool off-white
 
 [browser]
 gatherUsageStats = false

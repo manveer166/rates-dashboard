@@ -23,9 +23,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import streamlit as st
 from dashboard.state import password_gate
+from dashboard.components.header import render_page_header
 
 st.set_page_config(page_title="Feature Request", page_icon="💡", layout="wide")
 password_gate()
+render_page_header(current="Home")
 
 TO_EMAIL = "ratesteam@macromanv.com"
 DEFAULT_FROM = "manveer166@gmail.com"

@@ -16,26 +16,262 @@ import streamlit as st
 
 from config import TENOR_LABELS, TENOR_YEARS, PLOTLY_THEME
 from dashboard.components.controls import render_sidebar_controls
+from dashboard.components.header import render_page_header
 from dashboard.state import get_master_df, init_session_state
 from dashboard.tutorial import render_tutorial_button, render_tutorial
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 st.set_page_config(
-    page_title="Rates Dashboard",
-    page_icon="📈",
+    page_title="Home · Rates Dashboard",
+    page_icon="🏠",
     layout="wide",
     initial_sidebar_state="expanded",
     menu_items={"About": "**Rates Dashboard** — Global Rates & Spread Analysis"},
 )
 
 st.markdown("""
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-    /* ── Base styles ── */
-    .stMetric label { font-size: 12px !important; color: #8892a4 !important; }
-    [data-testid="stSidebar"] { background-color: #161b27; }
-    .section-header { font-size: 14px; font-weight: 600; color: #8892a4;
-                      text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+    /* ─────────────────────────────────────────────────────────────────
+       Design system — based on 11 UI/UX principles
+       Color ramp (single brand blue, lightened for cards & text):
+         --c-bg-0: deepest navy   (page canvas)
+         --c-bg-1: card / sidebar (one shade lighter — depth via lightness, not borders)
+         --c-bg-2: hover / nested
+         --c-bg-3: input / pressed
+         --c-accent:  cyan brand highlight
+         --c-text-1:  primary text
+         --c-text-2:  secondary text (inactive / labels)
+         --c-text-3:  tertiary text (captions, hints)
+       Spacing follows a 4-point grid.
+       Font: Inter, single family across the app.
+       ───────────────────────────────────────────────────────────────── */
+    :root {
+        --c-bg-0:   #0a1628;
+        --c-bg-1:   #122340;
+        --c-bg-2:   #1a3056;
+        --c-bg-3:   #233e6e;
+        --c-accent: #4fc3f7;
+        --c-accent-soft: rgba(79, 195, 247, 0.14);
+        --c-text-1: #e8eef9;
+        --c-text-2: #94a8c9;
+        --c-text-3: #6a7e9e;
+        --c-success: #4ade80;
+        --c-danger:  #f87171;
+        --c-warning: #fbbf24;
+        --shadow-1: 0 1px 2px rgba(0,0,0,0.10);
+        --shadow-2: 0 4px 14px rgba(0,0,0,0.18);
+        --shadow-3: 0 12px 32px rgba(0,0,0,0.28);
+        --r-sm: 4px;
+        --r-md: 6px;
+        --r-lg: 10px;
+    }
+
+    /* ── Typography (single sans-serif, tightened headers) ── */
+    html, body, [class*="css"], .stApp, .stMarkdown, .stTextInput, .stSelectbox,
+    .stButton, button, input, textarea, select {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+        font-feature-settings: 'cv11', 'ss01';
+        -webkit-font-smoothing: antialiased;
+    }
+    h1 {
+        color: var(--c-text-1) !important;
+        font-weight: 700 !important;
+        font-size: 32px !important;
+        letter-spacing: -0.02em !important;
+        line-height: 1.15 !important;
+        margin-bottom: 4px !important;
+    }
+    h2 {
+        color: var(--c-text-1) !important;
+        font-weight: 600 !important;
+        font-size: 22px !important;
+        letter-spacing: -0.015em !important;
+        line-height: 1.2 !important;
+    }
+    h3, .stSubheader {
+        color: var(--c-text-1) !important;
+        font-weight: 600 !important;
+        font-size: 17px !important;
+        letter-spacing: -0.01em !important;
+        line-height: 1.3 !important;
+    }
+    p, .stMarkdown { color: var(--c-text-1); line-height: 1.55; }
+    .stCaption, [data-testid="stCaptionContainer"] { color: var(--c-text-3) !important; font-size: 12px !important; }
+
+    /* ── Page canvas (depth via lightness, not borders) ── */
+    .stApp { background: var(--c-bg-0); }
+    [data-testid="stHeader"] { background: rgba(10, 22, 40, 0.80); backdrop-filter: blur(8px); }
+    [data-testid="stAppViewContainer"] > .main { background: var(--c-bg-0); }
+    [data-testid="block-container"] { padding-top: 24px !important; padding-bottom: 32px !important; }
+
+    /* ── Sidebar (slightly lighter than canvas → reads as elevated) ── */
+    [data-testid="stSidebar"] {
+        background: var(--c-bg-1);
+        border-right: none;
+        box-shadow: var(--shadow-2);
+    }
+    [data-testid="stSidebar"] .stMarkdown,
+    [data-testid="stSidebar"] label,
+    [data-testid="stSidebar"] p { color: var(--c-text-2) !important; }
+    [data-testid="stSidebar"] h1,
+    [data-testid="stSidebar"] h2,
+    [data-testid="stSidebar"] h3 { color: var(--c-text-1) !important; font-size: 15px !important; }
+
+    /* ── Cards (KPI metrics, dataframes) — depth via lighter background ── */
+    [data-testid="stMetric"] {
+        background: var(--c-bg-1);
+        border: none;
+        border-radius: var(--r-lg);
+        padding: 16px 18px;
+        box-shadow: var(--shadow-1);
+        transition: background 0.18s ease, box-shadow 0.18s ease;
+    }
+    [data-testid="stMetric"]:hover {
+        background: var(--c-bg-2);
+        box-shadow: var(--shadow-2);
+    }
+    [data-testid="stMetric"] [data-testid="stMetricValue"] {
+        color: var(--c-text-1) !important;
+        font-weight: 600 !important;
+        font-size: 26px !important;
+        letter-spacing: -0.015em !important;
+    }
+    [data-testid="stMetric"] [data-testid="stMetricLabel"] {
+        color: var(--c-text-2) !important;
+        font-size: 11px !important;
+        font-weight: 500 !important;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+    }
+    [data-testid="stMetric"] [data-testid="stMetricDelta"] svg { width: 12px !important; height: 12px !important; }
+
+    .section-header {
+        font-size: 11px; font-weight: 700; color: var(--c-accent);
+        text-transform: uppercase; letter-spacing: 0.12em; margin-bottom: 12px;
+    }
+
+    /* ── Tabs ── */
+    .stTabs [data-baseweb="tab-list"] {
+        background: var(--c-bg-1);
+        border-radius: var(--r-md);
+        padding: 4px;
+        gap: 4px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        color: var(--c-text-2);
+        border-radius: var(--r-sm);
+        padding: 8px 16px;
+        transition: all 0.15s ease;
+    }
+    .stTabs [data-baseweb="tab"]:hover { color: var(--c-text-1); background: var(--c-bg-2); }
+    .stTabs [aria-selected="true"] {
+        background: var(--c-bg-3) !important;
+        color: var(--c-text-1) !important;
+    }
+
+    /* ── Dataframes ── */
+    .stDataFrame, [data-testid="stDataFrame"] {
+        background: var(--c-bg-1);
+        border-radius: var(--r-md);
+        border: none;
+    }
+
+    /* ── Inputs (focus state for accessibility) ── */
+    div[data-baseweb="select"] > div,
+    .stTextInput > div > div > input,
+    .stNumberInput > div > div > input,
+    .stTextArea textarea,
+    .stDateInput > div > div > input {
+        background: var(--c-bg-1) !important;
+        border: 1px solid transparent !important;
+        border-radius: var(--r-md) !important;
+        color: var(--c-text-1) !important;
+        transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    div[data-baseweb="select"] > div:hover,
+    .stTextInput > div > div > input:hover { background: var(--c-bg-2) !important; }
+    .stTextInput > div > div > input:focus,
+    .stNumberInput > div > div > input:focus,
+    .stTextArea textarea:focus,
+    .stDateInput > div > div > input:focus {
+        border-color: var(--c-accent) !important;
+        box-shadow: 0 0 0 3px var(--c-accent-soft) !important;
+        outline: none;
+    }
+
+    /* ── Buttons — 4 explicit states (default, hover, active, disabled) ── */
+    .stButton > button,
+    .stDownloadButton > button,
+    .stFormSubmitButton > button {
+        background: transparent;
+        color: var(--c-text-1);
+        border: 1px solid var(--c-bg-3);
+        border-radius: var(--r-md);
+        padding: 9px 18px;
+        font-weight: 500;
+        transition: all 0.15s ease;
+        box-shadow: none;
+    }
+    .stButton > button:hover,
+    .stDownloadButton > button:hover,
+    .stFormSubmitButton > button:hover {
+        background: var(--c-bg-2);
+        border-color: var(--c-accent);
+        color: #ffffff;
+    }
+    .stButton > button:active,
+    .stDownloadButton > button:active,
+    .stFormSubmitButton > button:active {
+        background: var(--c-bg-3);
+        transform: translateY(1px);
+    }
+    .stButton > button:disabled,
+    .stDownloadButton > button:disabled,
+    .stFormSubmitButton > button:disabled {
+        background: transparent !important;
+        border-color: var(--c-bg-1) !important;
+        color: var(--c-text-3) !important;
+        cursor: not-allowed;
+    }
+    /* Primary button — filled accent */
+    .stButton > button[kind="primary"],
+    .stFormSubmitButton > button[kind="primary"] {
+        background: var(--c-accent);
+        color: var(--c-bg-0);
+        border: 1px solid var(--c-accent);
+        font-weight: 600;
+        box-shadow: var(--shadow-1);
+    }
+    .stButton > button[kind="primary"]:hover,
+    .stFormSubmitButton > button[kind="primary"]:hover {
+        background: #81d4fa;
+        border-color: #81d4fa;
+        color: var(--c-bg-0);
+        box-shadow: var(--shadow-2);
+    }
+    .stButton > button[kind="primary"]:active,
+    .stFormSubmitButton > button[kind="primary"]:active { transform: translateY(1px); }
+
+    /* ── Dividers ── */
+    hr, [data-testid="stDivider"] { border-color: var(--c-bg-1) !important; opacity: 0.6; }
+
+    /* ── Alerts (semantic colors) ── */
+    [data-testid="stAlert"] { border-radius: var(--r-md); border: none; }
+    [data-testid="stAlert"][data-baseweb="notification"] { background: var(--c-bg-1) !important; }
+
+    /* ── Plotly — make charts blend into the deep blue ── */
+    .js-plotly-plot, .plot-container { background: transparent !important; }
+
+    /* ── Micro-interactions ── */
+    @keyframes mm-fade-in {
+        from { opacity: 0; transform: translateY(4px); }
+        to   { opacity: 1; transform: translateY(0); }
+    }
+    [data-testid="stMetric"], [data-testid="stDataFrame"] { animation: mm-fade-in 0.35s ease-out; }
 
     /* ── Mobile responsive ── */
     @media (max-width: 768px) {
@@ -151,9 +387,74 @@ def metric_row(df: pd.DataFrame, definitions: list, lookback_days: int):
 def main():
     init_session_state()
     render_sidebar_controls()
+    render_page_header(current="Home")
 
-    st.title("📈 Rates Dashboard")
-    st.markdown("### US Treasury · EUR/GBP/CHF · SOFR Swaps · Credit Spreads")
+    st.title("🏠 Home")
+    st.markdown(
+        '<p style="color:var(--c-text-2);font-size:15px;margin-top:-4px;">'
+        "US Treasury · EUR / GBP / CHF · SOFR Swaps · Credit Spreads"
+        "</p>",
+        unsafe_allow_html=True,
+    )
+
+    # ── Quick-jump grid to every section (ghost cards on the 4-pt grid) ─
+    st.markdown(
+        """
+<style>
+.mm-jump-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    gap: 12px;
+    margin: 24px 0 8px 0;
+}
+.mm-jump-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 16px;
+    background: var(--c-bg-1);
+    border-radius: 10px;
+    text-decoration: none;
+    color: var(--c-text-1);
+    font-size: 14px;
+    font-weight: 500;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.10);
+    transition: all 0.18s ease;
+    border-left: 3px solid transparent;
+}
+.mm-jump-card:hover {
+    background: var(--c-bg-2);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 14px rgba(0,0,0,0.18);
+    border-left-color: var(--c-accent);
+    color: #ffffff;
+}
+.mm-jump-card:active { transform: translateY(0); }
+.mm-jump-card.mm-jump-featured {
+    background: var(--c-bg-2);
+    border-left-color: var(--c-accent);
+    box-shadow: 0 4px 14px rgba(0,0,0,0.18);
+}
+.mm-jump-card .mm-jump-emoji { font-size: 18px; }
+</style>
+<div class="mm-jump-grid">
+  <a class="mm-jump-card mm-jump-featured" href="/Analysis"      target="_self"><span class="mm-jump-emoji">🔍</span> Trade Scanner ⭐</a>
+  <a class="mm-jump-card" href="/Yield_Curve"   target="_self"><span class="mm-jump-emoji">📉</span> Yield Curve</a>
+  <a class="mm-jump-card" href="/Spreads"       target="_self"><span class="mm-jump-emoji">📊</span> Spreads</a>
+  <a class="mm-jump-card" href="/Regression"    target="_self"><span class="mm-jump-emoji">📐</span> Regression</a>
+  <a class="mm-jump-card" href="/PCA"           target="_self"><span class="mm-jump-emoji">🧮</span> PCA</a>
+  <a class="mm-jump-card" href="/Correlation"   target="_self"><span class="mm-jump-emoji">🔗</span> Correlation</a>
+  <a class="mm-jump-card" href="/Vol_Surface"   target="_self"><span class="mm-jump-emoji">🌊</span> Vol Surface</a>
+  <a class="mm-jump-card" href="/Trade_Tracker" target="_self"><span class="mm-jump-emoji">📒</span> Trade Tracker</a>
+  <a class="mm-jump-card" href="/Alerts"        target="_self"><span class="mm-jump-emoji">🔔</span> Alerts</a>
+  <a class="mm-jump-card" href="/Data_Sources"  target="_self"><span class="mm-jump-emoji">📡</span> Data Sources</a>
+  <a class="mm-jump-card" href="/Glossary"      target="_self"><span class="mm-jump-emoji">📖</span> Glossary</a>
+  <a class="mm-jump-card" href="/User_Guide"    target="_self"><span class="mm-jump-emoji">📘</span> User Guide</a>
+  <a class="mm-jump-card" href="/Feature_Request" target="_self"><span class="mm-jump-emoji">💡</span> Feature Request</a>
+</div>
+        """,
+        unsafe_allow_html=True,
+    )
     st.divider()
 
     # ── Lookback selector (top of page) ───────────────────────────────────

@@ -11,11 +11,13 @@ import streamlit as st
 from analysis.spreads import compute_spreads, spread_summary
 from config import PLOTLY_THEME, SPREAD_DEFINITIONS
 from dashboard.components.controls import render_sidebar_controls
+from dashboard.components.header import render_page_header
 from dashboard.state import get_master_df, init_session_state
 
 st.set_page_config(page_title="Spreads", page_icon="📊", layout="wide")
 init_session_state()
 render_sidebar_controls()
+render_page_header(current="Spreads")
 
 st.title("📊 Spread Analysis")
 st.markdown("2s10s, 5s30s, swap spreads, and credit spreads with z-score overlays.")

@@ -18,10 +18,12 @@ from config import (
 )
 from dashboard.state import get_master_df, init_session_state, cache_age_str, is_admin
 from dashboard.components.controls import render_sidebar_controls
+from dashboard.components.header import render_page_header
 
 st.set_page_config(page_title="Data Sources", page_icon="📡", layout="wide")
 init_session_state()
 render_sidebar_controls()
+render_page_header(current="Sources")
 
 st.title("📡 Data Sources")
 st.caption("All data series used across the dashboard, with FRED codes, source URLs, and current availability.")

@@ -19,11 +19,13 @@ import streamlit as st
 
 from dashboard.state import password_gate, get_master_df, init_session_state, is_admin
 from dashboard.components.controls import render_sidebar_controls
+from dashboard.components.header import render_page_header
 
 st.set_page_config(page_title="Alerts", page_icon="🔔", layout="wide")
 password_gate()
 init_session_state()
 render_sidebar_controls()
+render_page_header(current="Alerts")
 
 st.title("🔔 Email Alerts")
 st.caption("Configure automated scanner alerts — delivered to your inbox.")

@@ -28,11 +28,13 @@ import streamlit as st
 from config import TREASURY_TENORS, PLOTLY_THEME
 from dashboard.state import get_master_df, init_session_state
 from dashboard.components.controls import render_sidebar_controls
+from dashboard.components.header import render_page_header
 
 st.set_page_config(page_title="Analysis", page_icon="🔬", layout="wide")
 
 init_session_state()
 render_sidebar_controls()
+render_page_header(current="Analysis")
 
 # ── Lazy import: only load fixed_income when this page is visited ──────────
 @st.cache_resource

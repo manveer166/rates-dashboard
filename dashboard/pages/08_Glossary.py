@@ -10,9 +10,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import streamlit as st
 from dashboard.state import password_gate
+from dashboard.components.header import render_page_header
 
 st.set_page_config(page_title="Glossary", page_icon="📖", layout="wide")
 password_gate()
+render_page_header(current="Glossary")
 
 st.title("📖 Glossary & Index")
 st.caption("Definitions for every metric, column, and concept used across the dashboard.")

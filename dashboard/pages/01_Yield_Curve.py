@@ -11,11 +11,13 @@ import streamlit as st
 from analysis.nelson_siegel import fit_curve, fit_history
 from config import TENOR_LABELS, TENOR_YEARS, PLOTLY_THEME
 from dashboard.components.controls import render_sidebar_controls
+from dashboard.components.header import render_page_header
 from dashboard.state import get_master_df, init_session_state
 
 st.set_page_config(page_title="Yield Curve", page_icon="📉", layout="wide")
 init_session_state()
 render_sidebar_controls()
+render_page_header(current="Yield Curve")
 
 st.title("📉 Yield Curve Analysis")
 st.markdown("US Treasury yield curve snapshot, historical evolution, and Nelson-Siegel model fit.")

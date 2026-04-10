@@ -12,11 +12,13 @@ import pandas as pd
 from analysis.pca import run_pca, pca_summary_table
 from config import PLOTLY_THEME, TENOR_LABELS
 from dashboard.components.controls import render_sidebar_controls
+from dashboard.components.header import render_page_header
 from dashboard.state import get_master_df, init_session_state
 
 st.set_page_config(page_title="PCA", page_icon="🧮", layout="wide")
 init_session_state()
 render_sidebar_controls()
+render_page_header(current="PCA")
 
 st.title("🧮 PCA — Yield Curve Decomposition")
 st.markdown(

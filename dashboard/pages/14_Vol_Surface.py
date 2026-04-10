@@ -18,11 +18,13 @@ import streamlit as st
 from config import PLOTLY_THEME
 from dashboard.state import password_gate, get_master_df, init_session_state
 from dashboard.components.controls import render_sidebar_controls
+from dashboard.components.header import render_page_header
 
 st.set_page_config(page_title="Vol Surface", page_icon="🌊", layout="wide")
 password_gate()
 init_session_state()
 render_sidebar_controls()
+render_page_header(current="Vol Surface")
 
 st.title("🌊 Swaption Volatility Surface")
 st.caption("Implied volatility surface for USD swaptions. Uses realised vols as proxy when market data unavailable.")

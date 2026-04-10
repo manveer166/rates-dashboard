@@ -20,11 +20,13 @@ import streamlit as st
 from config import PLOTLY_THEME
 from dashboard.state import password_gate, get_master_df, init_session_state, is_admin
 from dashboard.components.controls import render_sidebar_controls
+from dashboard.components.header import render_page_header
 
 st.set_page_config(page_title="Trade Tracker", page_icon="📋", layout="wide")
 password_gate()
 init_session_state()
 render_sidebar_controls()
+render_page_header(current="Trade Tracker")
 
 st.title("📋 Trade Tracker")
 st.caption("Log trade ideas, track P&L, and build your track record.")
