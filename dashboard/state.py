@@ -86,8 +86,8 @@ def _load_from_network(start: str, end: str) -> pd.DataFrame:
 # Public API
 # ---------------------------------------------------------------------------
 
-VIEWER_PASSWORD = "rates"
-ADMIN_PASSWORD  = "manveer"
+VIEWER_PASSWORD = st.secrets.get("VIEWER_PASSWORD", "rates")
+ADMIN_PASSWORD  = st.secrets.get("ADMIN_PASSWORD", "manveer")
 
 # Backwards-compat alias (some old code may import this)
 SITE_PASSWORD = VIEWER_PASSWORD
@@ -99,7 +99,7 @@ SITE_PASSWORD = VIEWER_PASSWORD
 # created. To survive that, we mirror the auth state into ?auth=<token>
 # query param. The token is an HMAC of the role using a server-side secret,
 # so it cannot be forged without knowing the secret.
-_AUTH_SECRET = "macromanv-rates-2026-do-not-leak"
+_AUTH_SECRET = st.secrets.get("AUTH_SECRET", "change-me-in-production")
 
 
 def _auth_token(role: str) -> str:
