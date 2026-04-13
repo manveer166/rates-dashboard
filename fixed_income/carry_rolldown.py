@@ -479,20 +479,38 @@ def forward_carry_rolldown(
         """Total carry+roll for one leg: fwd - spot, in bps."""
         return (_fwd_swap(label) - _spot(label)) * 100
 
+    def _carry_one(label):
+        """Funding carry for one leg: (fixed - SOFR) * holding period, in bps."""
+        return (_spot(label) - overnight_rate) * (holding_months / 12.0) * 100
+
+    def _roll_one(label):
+        """Rolldown for one leg: rate change as tenor shortens, in bps."""
+        return swap_rolldown(t_list, r_list, TENOR_MAP[label], holding_months)
+
     if trade_type == "outright":
         total_bps = _cr_one(tenor1)
+        carry_bps = _carry_one(tenor1)
+        roll_bps  = _roll_one(tenor1)
 
     elif trade_type == "spread":
         assert tenor2 is not None
         # Spread = long - short (tenor1=long, tenor2=short)
         total_bps = _cr_one(tenor1) - _cr_one(tenor2)
+        carry_bps = _carry_one(tenor1) - _carry_one(tenor2)
+        roll_bps  = _roll_one(tenor1) - _roll_one(tenor2)
 
     elif trade_type == "fly":
         assert tenor2 is not None and tenor3 is not None
         # Fly = 2*belly - wing1 - wing2
         total_bps = 2 * _cr_one(tenor2) - _cr_one(tenor1) - _cr_one(tenor3)
+        carry_bps = 2 * _carry_one(tenor2) - _carry_one(tenor1) - _carry_one(tenor3)
+        roll_bps  = 2 * _roll_one(tenor2) - _roll_one(tenor1) - _roll_one(tenor3)
 
     else:
         raise ValueError(f"Unknown trade_type: {trade_type}")
 
-    return {"carry": 0.0, "rolldown": 0.0, "total": round(total_bps, 2)}
+    return {
+        "carry":    round(carry_bps, 2),
+        "rolldown": round(roll_bps, 2),
+        "total":    round(total_bps, 2),
+    }
