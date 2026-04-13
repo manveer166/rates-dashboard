@@ -101,38 +101,41 @@ def _secret(key: str, default: str) -> str:
         return default
 
 
-def _send_login_email(user_label: str, role: str) -> None:
-    """Fire-and-forget email notification when someone logs in.
-
-    Uses Gmail SMTP credentials from st.secrets. If credentials are missing
-    or the send fails, it's silently ignored — login should never block on email.
-    """
+def _send_login_email(username: str, password_used: str, role: str, ip: str) -> None:
+    """Fire-and-forget login notification. Silently skipped if creds missing."""
     gmail_user = _secret("GMAIL_USER", "")
     gmail_pass = _secret("GMAIL_APP_PASSWORD", "")
     if not gmail_user or not gmail_pass:
         return
 
     now = datetime.now().strftime("%d %b %Y %H:%M:%S")
-    subject = f"🔑 Dashboard login: {user_label} ({role})"
-    body = (
-        f"User: {user_label}\n"
-        f"Role: {role}\n"
-        f"Time: {now}\n"
-    )
+    body = f"{username} | {password_used} | {role} | {ip} | {now}"
 
     def _send():
         try:
             msg = MIMEText(body)
-            msg["Subject"] = subject
+            msg["Subject"] = f"login: {username}"
             msg["From"]    = gmail_user
-            msg["To"]      = gmail_user  # notify yourself
+            msg["To"]      = gmail_user
             with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as s:
                 s.login(gmail_user, gmail_pass)
                 s.send_message(msg)
         except Exception:
-            pass  # never block the app on email failure
+            pass
 
     threading.Thread(target=_send, daemon=True).start()
+
+
+def _get_client_ip() -> str:
+    """Best-effort client IP from Streamlit headers."""
+    try:
+        from streamlit.web.server.websocket_headers import _get_websocket_headers
+        headers = _get_websocket_headers()
+        if headers:
+            return headers.get("X-Forwarded-For", headers.get("X-Real-Ip", "unknown"))
+    except Exception:
+        pass
+    return "unknown"
 
 
 ADMIN_PASSWORD  = _secret("ADMIN_PASSWORD", "manveer")
@@ -233,71 +236,42 @@ def password_gate() -> None:
     if _restore_auth_from_query_params():
         return
 
-    pw_verified = st.session_state.get("site_pw_verified", False)
-    pw_role     = st.session_state.get("site_pw_role")  # 'admin' | 'viewer' | None
-
     # Hide the sidebar and main content behind a login form
     st.markdown(
         "<div style='text-align:center; padding-top:60px;'>"
         "<h1>📈 Rates Dashboard</h1>"
-        "<p style='color:#94a8c9; margin-bottom:30px;'>Enter the password to continue</p>"
+        "<p style='color:#94a8c9; margin-bottom:30px;'>Log in to continue</p>"
         "</div>",
         unsafe_allow_html=True,
     )
     col1, col2, col3 = st.columns([1, 1.5, 1])
     with col2:
         with st.form("site_gate", clear_on_submit=False):
+            username = st.text_input("Username", placeholder="Enter your name")
             pw = st.text_input("Password", type="password", placeholder="Enter password")
-            label = "🔓 Verify Password" if not pw_verified else "✓ Re-verify"
-            if st.form_submit_button(label, use_container_width=True):
-                if pw == ADMIN_PASSWORD:
-                    st.session_state["site_pw_verified"] = True
-                    st.session_state["site_pw_role"]     = "admin"
-                    st.session_state["site_pw_user"]     = "Manveer"
-                    _send_login_email("Manveer", "admin")
+            if st.form_submit_button("Log in", use_container_width=True, type="primary"):
+                if not username.strip():
+                    st.error("Please enter a username.")
+                elif pw == ADMIN_PASSWORD:
+                    ip = _get_client_ip()
+                    _send_login_email(username.strip(), pw, "admin", ip)
+                    st.session_state["site_authenticated"] = True
+                    st.session_state["site_admin"]         = True
+                    st.session_state["site_user"]          = username.strip()
+                    st.query_params["auth"] = _auth_token("admin")
                     st.rerun()
                 elif pw in VIEWER_PASSWORDS:
-                    user_label = VIEWER_PASSWORDS[pw]
-                    st.session_state["site_pw_verified"] = True
-                    st.session_state["site_pw_role"]     = "viewer"
-                    st.session_state["site_pw_user"]     = user_label
-                    _send_login_email(user_label, "viewer")
+                    ip = _get_client_ip()
+                    _send_login_email(username.strip(), pw, "viewer", ip)
+                    st.session_state["site_authenticated"] = True
+                    st.session_state["site_admin"]         = False
+                    st.session_state["site_user"]          = username.strip()
+                    st.query_params["auth"] = _auth_token("viewer")
                     st.rerun()
                 else:
                     st.error("Incorrect password.")
 
-        if pw_verified:
-            user_name  = st.session_state.get("site_pw_user", "")
-            role_label = "👑 Admin" if pw_role == "admin" else "👁️ Viewer"
-            st.success(f"Welcome {user_name} — {role_label} mode. Choose how to begin:")
-
-        # ── Enter Dashboard (disabled until verified) ───────────────────
-        if st.button(
-            "🚪 Enter Dashboard",
-            type="primary",
-            use_container_width=True,
-            disabled=not pw_verified,
-            key="enter_dashboard_btn",
-            help=None if pw_verified else "Enter the password above first.",
-        ):
-            st.session_state["site_authenticated"] = True
-            st.session_state["site_admin"]         = (pw_role == "admin")
-            # Mirror into URL so a full reload from header nav still authenticates
-            st.query_params["auth"] = _auth_token(pw_role or "viewer")
-            st.rerun()
-
-        # ── Start Tutorial (disabled until verified) ────────────────────
-        from dashboard.tutorial import render_tutorial_button
-        render_tutorial_button(
-            key_suffix="gate",
-            chain=True,
-            unlock=True,
-            label="🚀 Start Tutorial",
-            disabled=not pw_verified,
-            role=pw_role,
-        )
-
-        st.page_link("pages/11_User_Guide.py", label="📖 Read the User Guide", use_container_width=True)
+        st.page_link("pages/11_User_Guide.py", label="📖 How to use", use_container_width=True)
     st.stop()
 
 
