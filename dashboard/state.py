@@ -7,7 +7,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import hashlib
 import hmac
 import logging
+import smtplib
+import threading
 from datetime import datetime
+from email.mime.text import MIMEText
 
 import pandas as pd
 import streamlit as st
@@ -98,10 +101,57 @@ def _secret(key: str, default: str) -> str:
         return default
 
 
-VIEWER_PASSWORD = _secret("VIEWER_PASSWORD", "rates")
+def _send_login_email(user_label: str, role: str) -> None:
+    """Fire-and-forget email notification when someone logs in.
+
+    Uses Gmail SMTP credentials from st.secrets. If credentials are missing
+    or the send fails, it's silently ignored — login should never block on email.
+    """
+    gmail_user = _secret("GMAIL_USER", "")
+    gmail_pass = _secret("GMAIL_APP_PASSWORD", "")
+    if not gmail_user or not gmail_pass:
+        return
+
+    now = datetime.now().strftime("%d %b %Y %H:%M:%S")
+    subject = f"🔑 Dashboard login: {user_label} ({role})"
+    body = (
+        f"User: {user_label}\n"
+        f"Role: {role}\n"
+        f"Time: {now}\n"
+    )
+
+    def _send():
+        try:
+            msg = MIMEText(body)
+            msg["Subject"] = subject
+            msg["From"]    = gmail_user
+            msg["To"]      = gmail_user  # notify yourself
+            with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as s:
+                s.login(gmail_user, gmail_pass)
+                s.send_message(msg)
+        except Exception:
+            pass  # never block the app on email failure
+
+    threading.Thread(target=_send, daemon=True).start()
+
+
 ADMIN_PASSWORD  = _secret("ADMIN_PASSWORD", "manveer")
 
-# Backwards-compat alias (some old code may import this)
+# Named viewer passwords — each password maps to a user label so login
+# notifications can tell you WHO logged in. Add more in secrets.toml as a
+# comma-separated "password:name" list, e.g. "rates:Viewer,nomh:NomH,nomm:NomM"
+_VIEWER_RAW = _secret("VIEWER_PASSWORDS", "rates:Viewer,nomh:NomH,nomm:NomM")
+VIEWER_PASSWORDS = {}  # {password: display_name}
+for entry in _VIEWER_RAW.split(","):
+    entry = entry.strip()
+    if ":" in entry:
+        pw, name = entry.split(":", 1)
+        VIEWER_PASSWORDS[pw.strip()] = name.strip()
+    else:
+        VIEWER_PASSWORDS[entry] = entry  # use password as name fallback
+
+# Backwards-compat aliases
+VIEWER_PASSWORD = list(VIEWER_PASSWORDS.keys())[0] if VIEWER_PASSWORDS else "rates"
 SITE_PASSWORD = VIEWER_PASSWORD
 
 # ── Persistent auth via query params ─────────────────────────────────────
@@ -203,17 +253,23 @@ def password_gate() -> None:
                 if pw == ADMIN_PASSWORD:
                     st.session_state["site_pw_verified"] = True
                     st.session_state["site_pw_role"]     = "admin"
+                    st.session_state["site_pw_user"]     = "Manveer"
+                    _send_login_email("Manveer", "admin")
                     st.rerun()
-                elif pw == VIEWER_PASSWORD:
+                elif pw in VIEWER_PASSWORDS:
+                    user_label = VIEWER_PASSWORDS[pw]
                     st.session_state["site_pw_verified"] = True
                     st.session_state["site_pw_role"]     = "viewer"
+                    st.session_state["site_pw_user"]     = user_label
+                    _send_login_email(user_label, "viewer")
                     st.rerun()
                 else:
                     st.error("Incorrect password.")
 
         if pw_verified:
+            user_name  = st.session_state.get("site_pw_user", "")
             role_label = "👑 Admin" if pw_role == "admin" else "👁️ Viewer"
-            st.success(f"Verified — {role_label} mode unlocked. Choose how to begin:")
+            st.success(f"Welcome {user_name} — {role_label} mode. Choose how to begin:")
 
         # ── Enter Dashboard (disabled until verified) ───────────────────
         if st.button(
