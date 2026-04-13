@@ -590,6 +590,7 @@ if section.startswith("0"):
                     margin=dict(l=50, r=20, t=60, b=50),
                 )
                 st.plotly_chart(fig1, use_container_width=True)
+                st.caption("Bubble size = |1-week change| (bps) — larger bubbles moved more last week.")
 
                 # ── Chart 2: Expected Return vs Risk ──
                 fig2 = go.Figure()
@@ -632,6 +633,7 @@ if section.startswith("0"):
                     margin=dict(l=50, r=20, t=60, b=50),
                 )
                 st.plotly_chart(fig2, use_container_width=True)
+                st.caption("Bubble size = |1-week change| (bps) — larger bubbles moved more last week.")
             else:
                 st.info("Not enough data for bubble charts.")
 
