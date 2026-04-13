@@ -86,8 +86,20 @@ def _load_from_network(start: str, end: str) -> pd.DataFrame:
 # Public API
 # ---------------------------------------------------------------------------
 
-VIEWER_PASSWORD = st.secrets.get("VIEWER_PASSWORD", "rates")
-ADMIN_PASSWORD  = st.secrets.get("ADMIN_PASSWORD", "manveer")
+def _secret(key: str, default: str) -> str:
+    """Read from st.secrets if available, fall back to *default*.
+
+    st.secrets raises FileNotFoundError when no secrets.toml exists at all
+    (even with .get()), so a plain try/except is the safest approach for
+    local dev where the file may not be on the Streamlit search path."""
+    try:
+        return st.secrets[key]
+    except (FileNotFoundError, KeyError):
+        return default
+
+
+VIEWER_PASSWORD = _secret("VIEWER_PASSWORD", "rates")
+ADMIN_PASSWORD  = _secret("ADMIN_PASSWORD", "manveer")
 
 # Backwards-compat alias (some old code may import this)
 SITE_PASSWORD = VIEWER_PASSWORD
@@ -99,7 +111,7 @@ SITE_PASSWORD = VIEWER_PASSWORD
 # created. To survive that, we mirror the auth state into ?auth=<token>
 # query param. The token is an HMAC of the role using a server-side secret,
 # so it cannot be forged without knowing the secret.
-_AUTH_SECRET = st.secrets.get("AUTH_SECRET", "change-me-in-production")
+_AUTH_SECRET = _secret("AUTH_SECRET", "change-me-in-production")
 
 
 def _auth_token(role: str) -> str:
