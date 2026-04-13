@@ -1,6 +1,11 @@
 """
 Master data pipeline: orchestrates all fetchers and produces
 a single clean DataFrame consumed by all analysis modules.
+
+Sources (in merge priority order — later sources fill gaps, not overwrite):
+  1. Treasury.gov  — US Treasury par yields (primary, daily)
+  2. FRED           — SOFR swaps, credit OAS, intl yields, macro  (daily/monthly)
+  3. EODHD          — Government bond yields, VIX, supplementary  (daily, paid API)
 """
 
 import logging
@@ -9,14 +14,15 @@ import pandas as pd
 
 from data.fetchers.fred import FREDFetcher
 from data.fetchers.treasury import TreasuryFetcher
+from data.fetchers.eodhd import EODHDFetcher
 
 logger = logging.getLogger(__name__)
 
 
 class DataPipeline:
     """
-    Orchestrates Treasury + FRED fetchers, merges into one master DataFrame,
-    applies alignment and forward-fill.
+    Orchestrates Treasury + FRED + EODHD fetchers, merges into one master
+    DataFrame, applies alignment and forward-fill.
     """
 
     def __init__(
@@ -43,17 +49,24 @@ class DataPipeline:
         ).fetch()
         logger.info(f"FRED rows: {len(fred)}, cols: {list(fred.columns)}")
 
-        # 2. Merge on date index (outer join keeps all trading days)
-        if treasury.empty and fred.empty:
+        eodhd = EODHDFetcher(
+            self.start_date, self.end_date, use_cache=self.use_cache
+        ).fetch()
+        logger.info(f"EODHD rows: {len(eodhd)}, cols: {list(eodhd.columns)}")
+
+        # 2. Merge on date index (outer join keeps all trading days).
+        #    Treasury.gov is the primary source; FRED adds SOFR/credit/macro;
+        #    EODHD fills gaps or adds series that the free sources miss.
+        sources = [df for df in (treasury, fred, eodhd) if not df.empty]
+
+        if not sources:
             logger.error("No data fetched from any source.")
             return pd.DataFrame()
 
-        if treasury.empty:
-            master = fred
-        elif fred.empty:
-            master = treasury
-        else:
-            master = treasury.join(fred, how="outer")
+        master = sources[0]
+        for other in sources[1:]:
+            # combine_first keeps existing values and only fills NaN gaps
+            master = master.combine_first(other)
 
         # 3. Ensure datetime index and sort
         master.index = pd.to_datetime(master.index)
