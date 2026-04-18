@@ -22,6 +22,7 @@ SECTIONS = [
     ("Analysis",      "/Analysis",       "🔍"),
     ("Vol Surface",   "/Vol_Surface",    "🌊"),
     ("Trade Tracker", "/Trade_Tracker",  "📒"),
+    ("CTA Positioning", "/CTA_Positioning", "📊"),
     ("Alerts",        "/Alerts",         "🔔"),
     ("Sources",       "/Data_Sources",   "📡"),
     ("Glossary",      "/Glossary",       "📖"),

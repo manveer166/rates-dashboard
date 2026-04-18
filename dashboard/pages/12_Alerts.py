@@ -28,17 +28,11 @@ render_sidebar_controls()
 render_page_header(current="Alerts")
 
 st.title("🔔 Email Alerts")
-st.caption("Configure automated scanner alerts — delivered to your inbox.")
-
-if not is_admin():
-    st.info(
-        "🔒 **Viewer mode** — you can preview the alert content but cannot "
-        "save the configuration or trigger sends. Log in with the admin "
-        "password to make changes."
-    )
+st.caption("Get the top trade ideas delivered to your inbox every Monday and Friday.")
 
 ALERTS_CONFIG = Path(__file__).parent.parent.parent / "data" / "alerts_config.json"
 ALERTS_LOG = Path(__file__).parent.parent.parent / "data" / "alerts_log.csv"
+SUBSCRIBERS_FILE = Path(__file__).parent.parent.parent / "data" / "subscribers.json"
 
 # ── Load / save config ────────────────────────────────────────────────────
 
@@ -46,9 +40,9 @@ def _load_config():
     if ALERTS_CONFIG.exists():
         return json.loads(ALERTS_CONFIG.read_text())
     return {
-        "enabled": False,
-        "email": "",
-        "frequency": "daily",
+        "enabled": True,
+        "email": "manveer166@gmail.com",
+        "frequency": "mon_fri",
         "top_n": 10,
         "include_z_extremes": True,
         "z_threshold": 2.0,
@@ -61,21 +55,61 @@ def _save_config(cfg):
     ALERTS_CONFIG.parent.mkdir(parents=True, exist_ok=True)
     ALERTS_CONFIG.write_text(json.dumps(cfg, indent=2))
 
+def _load_subscribers():
+    if SUBSCRIBERS_FILE.exists():
+        return json.loads(SUBSCRIBERS_FILE.read_text())
+    return []
+
+def _save_subscribers(subs):
+    SUBSCRIBERS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    SUBSCRIBERS_FILE.write_text(json.dumps(subs, indent=2))
+
 
 cfg = _load_config()
 
 st.divider()
 
-# ── Configuration form ────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════
+# VIEWER: simple email subscribe
+# ══════════════════════════════════════════════════════════════════════════
+if not is_admin():
+    st.subheader("Subscribe to Alerts")
+    st.markdown(
+        "Enter your email to receive the **top trade ideas by Sharpe**, "
+        "z-score extremes, and big movers every **Monday and Friday morning**."
+    )
+    with st.form("subscribe_form"):
+        sub_email = st.text_input("Your email", placeholder="name@example.com")
+        if st.form_submit_button("Subscribe", use_container_width=True, type="primary"):
+            if not sub_email.strip() or "@" not in sub_email:
+                st.error("Please enter a valid email address.")
+            else:
+                subs = _load_subscribers()
+                emails = [s["email"] for s in subs]
+                if sub_email.strip().lower() in [e.lower() for e in emails]:
+                    st.info("You're already subscribed.")
+                else:
+                    subs.append({
+                        "email": sub_email.strip(),
+                        "subscribed_at": datetime.now().isoformat(),
+                    })
+                    _save_subscribers(subs)
+                    st.success(f"Subscribed {sub_email.strip()} — you'll get alerts every Monday and Friday.")
+    st.stop()
+
+# ══════════════════════════════════════════════════════════════════════════
+# ADMIN: full configuration
+# ══════════════════════════════════════════════════════════════════════════
 st.subheader("Alert Configuration")
 
 with st.form("alert_config"):
     c1, c2 = st.columns(2)
     with c1:
-        enabled = st.toggle("Alerts enabled", value=cfg.get("enabled", False))
-        email = st.text_input("Recipient email", value=cfg.get("email", ""))
-        frequency = st.selectbox("Frequency", ["daily", "weekly"],
-                                  index=["daily", "weekly"].index(cfg.get("frequency", "daily")))
+        enabled = st.toggle("Alerts enabled", value=cfg.get("enabled", True))
+        email = st.text_input("Primary recipient email", value=cfg.get("email", ""))
+        frequency = st.selectbox("Frequency", ["mon_fri", "daily", "weekly"],
+                                  index=["mon_fri", "daily", "weekly"].index(
+                                      cfg.get("frequency", "mon_fri")))
     with c2:
         top_n = st.number_input("Top N trades by Sharpe", min_value=3, max_value=50,
                                  value=cfg.get("top_n", 10))
@@ -91,18 +125,26 @@ with st.form("alert_config"):
                                   default=cfg.get("trade_types", ["Outright", "Curve", "Fly"]))
 
     if st.form_submit_button("Save Configuration", use_container_width=True):
-        if not is_admin():
-            st.error("🔒 Admin only — log in with the admin password to save changes.")
-        else:
-            new_cfg = {
-                "enabled": enabled, "email": email, "frequency": frequency,
-                "top_n": top_n, "z_threshold": z_thresh,
-                "include_z_extremes": include_z, "include_big_movers": include_movers,
-                "mover_threshold_bps": mover_thresh, "trade_types": trade_types,
-            }
-            _save_config(new_cfg)
-            cfg = new_cfg
-            st.success("Configuration saved.")
+        new_cfg = {
+            "enabled": enabled, "email": email, "frequency": frequency,
+            "top_n": top_n, "z_threshold": z_thresh,
+            "include_z_extremes": include_z, "include_big_movers": include_movers,
+            "mover_threshold_bps": mover_thresh, "trade_types": trade_types,
+        }
+        _save_config(new_cfg)
+        cfg = new_cfg
+        st.success("Configuration saved.")
+
+# ── Subscriber list ──────────────────────────────────────────────────────
+st.divider()
+st.subheader("Subscribers")
+subs = _load_subscribers()
+if subs:
+    sub_df = pd.DataFrame(subs)
+    st.dataframe(sub_df, use_container_width=True, hide_index=True)
+    st.caption(f"{len(subs)} subscriber(s)")
+else:
+    st.info("No subscribers yet. Viewers can subscribe from this page.")
 
 st.divider()
 
@@ -257,57 +299,56 @@ if st.button("Preview Alert", use_container_width=True):
 
 st.divider()
 
+def _send_alert_gmail(recipients, body):
+    """Send alert to all recipients via Gmail SMTP."""
+    from dashboard.state import _secret
+    gmail_user = _secret("GMAIL_USER", "")
+    gmail_pass = _secret("GMAIL_APP_PASSWORD", "")
+    if not gmail_user or not gmail_pass:
+        return 0, "Gmail credentials not configured in secrets."
+
+    import smtplib
+    from email.mime.text import MIMEText
+    sent = 0
+    for addr in recipients:
+        try:
+            msg = MIMEText(body)
+            msg["Subject"] = f"Rates Alert — {datetime.now().strftime('%d %b %Y')}"
+            msg["From"] = gmail_user
+            msg["To"] = addr
+            with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15) as s:
+                s.login(gmail_user, gmail_pass)
+                s.send_message(msg)
+            sent += 1
+        except Exception:
+            pass
+    return sent, None
+
+
 if st.button("Send Alert Now", type="primary", use_container_width=True):
-    if not is_admin():
-        st.error("🔒 Admin only — log in with the admin password to send alerts.")
-        st.stop()
-    smtp_host = os.getenv("SMTP_HOST", "")
-    smtp_user = os.getenv("SMTP_USER", "")
-    smtp_pass = os.getenv("SMTP_PASS", "")
-    to_email = cfg.get("email", "")
-
-    if not to_email:
-        st.error("No recipient email configured.")
-    elif not smtp_host:
-        st.warning("SMTP not configured — generating preview only.")
-        with st.spinner("Building scanner..."):
-            sdf = _build_scanner_df()
+    with st.spinner("Building scanner and sending..."):
+        sdf = _build_scanner_df()
         body = _build_alert_body(sdf, cfg)
-        st.code(body, language="text")
 
-        # Log it
-        ALERTS_LOG.parent.mkdir(parents=True, exist_ok=True)
-        with open(ALERTS_LOG, "a", newline="") as f:
-            csv.writer(f).writerow([datetime.now().isoformat(), to_email, "preview_only", len(body)])
-        st.info("Alert preview generated. Configure SMTP_HOST/SMTP_USER/SMTP_PASS to enable sending.")
-    else:
-        with st.spinner("Building and sending..."):
-            sdf = _build_scanner_df()
-            body = _build_alert_body(sdf, cfg)
-            try:
-                import smtplib
-                from email.mime.text import MIMEText
-                msg = MIMEText(body)
-                msg["Subject"] = f"Rates Alert — {datetime.now().strftime('%d %b %Y')}"
-                msg["From"] = smtp_user
-                msg["To"] = to_email
-                with smtplib.SMTP(smtp_host, int(os.getenv("SMTP_PORT", "587"))) as server:
-                    server.starttls()
-                    server.login(smtp_user, smtp_pass)
-                    server.sendmail(smtp_user, [to_email], msg.as_string())
-                st.success(f"Alert sent to {to_email}")
-            except Exception as e:
-                st.error(f"Failed to send: {e}")
+        # Collect all recipients: primary + subscribers
+        recipients = set()
+        if cfg.get("email"):
+            recipients.add(cfg["email"])
+        for sub in _load_subscribers():
+            recipients.add(sub["email"])
 
-        with open(ALERTS_LOG, "a", newline="") as f:
-            csv.writer(f).writerow([datetime.now().isoformat(), to_email, "sent", len(body)])
+        if not recipients:
+            st.error("No recipients — add a primary email or wait for subscribers.")
+        else:
+            sent, err = _send_alert_gmail(list(recipients), body)
+            if err:
+                st.warning(err)
+                st.code(body, language="text")
+            elif sent:
+                st.success(f"Alert sent to {sent} recipient(s).")
+            else:
+                st.error("Failed to send to any recipient.")
 
-st.divider()
-st.markdown("""
-**Automated scheduling:** To send alerts automatically, set up a cron job:
-```bash
-# Daily at 7am
-0 7 * * * curl http://localhost:8501/Alerts?send=1
-```
-Or use the dashboard's scheduled tasks system.
-""")
+            ALERTS_LOG.parent.mkdir(parents=True, exist_ok=True)
+            with open(ALERTS_LOG, "a", newline="") as f:
+                csv.writer(f).writerow([datetime.now().isoformat(), len(recipients), sent])

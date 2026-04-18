@@ -11,6 +11,7 @@ statsmodels==0.14.2
 streamlit==1.35.0
 plotly==5.22.0
 matplotlib>=3.8.0
+yfinance>=0.2.36
 pyarrow==16.0.0
 python-dotenv==1.0.1
 certifi

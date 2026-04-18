@@ -81,19 +81,19 @@ def render_sidebar_controls() -> None:
     role_tag = "👑 admin" if is_admin() else "👁️ viewer"
     st.sidebar.caption(f"Cache: {cache_age_str()}  ·  {role_tag}")
 
-    # ── Auth status ────────────────────────────────────────────────────
-    import os
-    if os.getenv("AUTH_ENABLED", "false").lower() == "true":
-        st.sidebar.divider()
-        from dashboard.auth import is_logged_in, current_user, logout
-        if is_logged_in():
-            user = current_user()
-            st.sidebar.markdown(f"**{user.get('name') or user.get('email', '')}**")
-            st.sidebar.caption(f"Tier: {user.get('tier', 'free').title()}")
-            if st.sidebar.button("Log Out", use_container_width=True):
-                logout()
-        else:
-            st.sidebar.info("Not signed in")
+    # ── Auth / Logout ─────────────────────────────────────────────────────
+    st.sidebar.divider()
+    user_label = st.session_state.get("site_user", "")
+    if user_label:
+        st.sidebar.caption(f"👤 Logged in as **{user_label}**")
+    if st.sidebar.button("🚪 Log Out", use_container_width=True):
+        for key in ("site_authenticated", "site_admin", "site_user"):
+            st.session_state.pop(key, None)
+        try:
+            st.query_params.clear()
+        except Exception:
+            pass
+        st.rerun()
 
     # ── Info ─────────────────────────────────────────────────────────────
     st.sidebar.divider()
