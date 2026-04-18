@@ -121,6 +121,7 @@ SPREAD_DEFINITIONS = {
     "1s10s":           ("10Y", "1Y"),
     "Swap Spread 10Y": ("SOFR_10Y", "10Y"),
     "Swap Spread 2Y":  ("SOFR_2Y",  "2Y"),
+    "SOFR-EFFR":       ("SOFR",     "EFFR"),
 }
 
 # ---------------------------------------------------------------------------
