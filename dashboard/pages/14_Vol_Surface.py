@@ -26,8 +26,8 @@ init_session_state()
 render_sidebar_controls()
 render_page_header(current="Vol Surface")
 
-st.title("🌊 Swaption Volatility Surface")
-st.caption("Implied volatility surface for USD swaptions. Uses realised vols as proxy when market data unavailable.")
+st.title("🌊 Volatility Surface (Realised Vol Proxy)")
+st.caption("Synthetic surface built from realised vols at different rolling windows. Not market-implied — connect live swaption data for true implied vol.")
 
 # ── Load vol data (or build synthetic) ────────────────────────────────────
 

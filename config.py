@@ -101,10 +101,13 @@ INTL_SERIES = {
 MACRO_SERIES = {
     "FEDFUNDS":     "FEDFUNDS",   # Effective Fed Funds (monthly avg)
     "EFFR":         "EFFR",       # Daily EFFR
+    "DFF":          "DFF",        # Daily Fed Funds (same as EFFR, wider history)
     "TIPS_10Y":     "DFII10",     # 10Y TIPS real yield
     "BREAKEVEN_5Y": "T5YIE",      # 5Y breakeven
     "BREAKEVEN_10Y":"T10YIE",     # 10Y breakeven
     "VIX":          "VIXCLS",     # CBOE VIX
+    "MOVE":         "MRACIOTM",   # ICE BofA MOVE Index (rates implied vol)
+    "ON_RRP":       "RRPONTSYD",  # ON Reverse Repo (overnight, $bn)
 }
 
 # ---------------------------------------------------------------------------

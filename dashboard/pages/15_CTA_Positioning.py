@@ -601,9 +601,10 @@ ref_price = float(sp.iloc[-1])
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE HEADER + KPI ROW
 # ══════════════════════════════════════════════════════════════════════════════
-st.title("📊 CTA & Systematic Fund Positioning")
+st.title("📊 CTA & Systematic Fund Positioning (Model Estimate)")
 st.markdown(
     '<p style="color:var(--c-text-2);font-size:15px;margin-top:-4px;">'
+    "Model-derived estimate from price momentum — not actual fund positioning or CFTC COT data. "
     "CTA trend model · Risk parity exposures · Vol-controlled fund flows"
     "</p>",
     unsafe_allow_html=True,
