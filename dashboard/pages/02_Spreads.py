@@ -152,6 +152,165 @@ if credit_cols:
 else:
     st.info("Credit spread data not available. Add a FRED API key to .env for best results.")
 
+# ── Funding & Plumbing ────────────────────────────────────────────────
+st.divider()
+st.subheader("🏦 Funding & Plumbing")
+st.caption("Repo rates, SOFR-EFFR spread, MOVE index, and ON RRP usage. Key stress indicators for the rates market.")
+
+import numpy as np
+
+funding_cols = {
+    "SOFR": "SOFR (O/N)",
+    "EFFR": "EFFR",
+    "TGCR": "Tri-Party GC Rate",
+    "BGCR": "Broad GC Rate",
+}
+avail_funding = {k: v for k, v in funding_cols.items() if k in df.columns}
+
+# SOFR-EFFR spread (primary funding stress indicator)
+if "SOFR" in df.columns and "EFFR" in df.columns:
+    sofr_effr = (df["SOFR"] - df["EFFR"]).dropna()
+    if len(sofr_effr) > 10:
+        fc1, fc2, fc3, fc4 = st.columns(4)
+        latest_sofr_effr = sofr_effr.iloc[-1]
+        fc1.metric("SOFR-EFFR Spread",
+                   f"{latest_sofr_effr*100:+.1f} bps",
+                   help="Positive = SOFR above EFFR, signals repo stress")
+        if "SOFR" in df.columns:
+            fc2.metric("SOFR", f"{df['SOFR'].dropna().iloc[-1]:.2f}%")
+        if "EFFR" in df.columns:
+            fc3.metric("EFFR", f"{df['EFFR'].dropna().iloc[-1]:.2f}%")
+        if "MOVE" in df.columns:
+            move_s = df["MOVE"].dropna()
+            if len(move_s) > 1:
+                fc4.metric("MOVE Index",
+                           f"{move_s.iloc[-1]:.0f}",
+                           delta=f"{move_s.iloc[-1] - move_s.iloc[-2]:+.1f}",
+                           delta_color="inverse")
+
+        # SOFR-EFFR spread chart
+        fig_se = go.Figure()
+        fig_se.add_trace(go.Scatter(
+            x=sofr_effr.index, y=sofr_effr.values * 100,
+            mode="lines", name="SOFR - EFFR (bps)",
+            line=dict(color="#4fc3f7", width=1.5),
+            fill="tozeroy", fillcolor="rgba(79,195,247,0.08)",
+        ))
+        fig_se.add_hline(y=0, line_dash="dot", line_color="white", opacity=0.3)
+        fig_se.update_layout(
+            template=PLOTLY_THEME, height=280,
+            hovermode="x unified",
+            xaxis_title="Date", yaxis_title="SOFR - EFFR (bps)",
+            margin=dict(l=20, r=20, t=10, b=20),
+        )
+        st.plotly_chart(fig_se, use_container_width=True)
+
+# MOVE Index chart
+if "MOVE" in df.columns:
+    move_s = df["MOVE"].dropna()
+    if len(move_s) > 20:
+        st.markdown("**MOVE Index** — ICE BofA rates implied vol benchmark")
+        fig_mv = go.Figure()
+        fig_mv.add_trace(go.Scatter(
+            x=move_s.index, y=move_s.values,
+            mode="lines", name="MOVE",
+            line=dict(color="#fbbf24", width=1.5),
+        ))
+        # Add 1Y rolling average
+        if len(move_s) > 252:
+            ma = move_s.rolling(252).mean().dropna()
+            fig_mv.add_trace(go.Scatter(
+                x=ma.index, y=ma.values,
+                mode="lines", name="1Y Avg",
+                line=dict(color="#94a8c9", width=1, dash="dash"),
+            ))
+        fig_mv.update_layout(
+            template=PLOTLY_THEME, height=280,
+            hovermode="x unified",
+            xaxis_title="Date", yaxis_title="MOVE Index",
+            margin=dict(l=20, r=20, t=10, b=20),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02),
+        )
+        st.plotly_chart(fig_mv, use_container_width=True)
+
+# ON RRP usage
+if "ON_RRP" in df.columns:
+    rrp_s = df["ON_RRP"].dropna()
+    if len(rrp_s) > 20:
+        st.markdown("**ON RRP Usage** — Fed overnight reverse repo facility ($bn)")
+        fig_rrp = go.Figure()
+        fig_rrp.add_trace(go.Scatter(
+            x=rrp_s.index, y=rrp_s.values / 1e3,
+            mode="lines", name="ON RRP ($tn)",
+            line=dict(color="#4ade80", width=1.5),
+            fill="tozeroy", fillcolor="rgba(74,222,128,0.08)",
+        ))
+        fig_rrp.update_layout(
+            template=PLOTLY_THEME, height=280,
+            hovermode="x unified",
+            xaxis_title="Date", yaxis_title="ON RRP ($tn)",
+            margin=dict(l=20, r=20, t=10, b=20),
+        )
+        st.plotly_chart(fig_rrp, use_container_width=True)
+
+# Repo rate panel (TGCR / BGCR if available from NY Fed)
+repo_avail = [c for c in ["TGCR", "BGCR"] if c in df.columns]
+if repo_avail:
+    st.markdown("**Repo Rates** — Tri-Party GC Rate / Broad GC Rate")
+    fig_repo = go.Figure()
+    repo_colors = {"TGCR": "#81d4fa", "BGCR": "#ce93d8"}
+    for col in repo_avail:
+        s = df[col].dropna()
+        fig_repo.add_trace(go.Scatter(
+            x=s.index, y=s.values,
+            mode="lines", name=col,
+            line=dict(color=repo_colors.get(col, "#4fc3f7"), width=1.5),
+        ))
+    if "SOFR" in df.columns:
+        sofr_s = df["SOFR"].dropna()
+        fig_repo.add_trace(go.Scatter(
+            x=sofr_s.index, y=sofr_s.values,
+            mode="lines", name="SOFR",
+            line=dict(color="#fbbf24", width=1, dash="dot"),
+        ))
+    fig_repo.update_layout(
+        template=PLOTLY_THEME, height=280,
+        hovermode="x unified",
+        xaxis_title="Date", yaxis_title="Rate (%)",
+        margin=dict(l=20, r=20, t=10, b=20),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02),
+    )
+    st.plotly_chart(fig_repo, use_container_width=True)
+
+# COT Positioning (if available from CFTC fetcher)
+cot_cols = [c for c in df.columns if c.startswith("COT_") and "NET_LEV" in c]
+if cot_cols:
+    st.divider()
+    st.subheader("📊 Futures Positioning (CFTC COT)")
+    st.caption("Net speculative (leveraged money) positioning in Treasury and SOFR futures. Weekly data, forward-filled.")
+
+    fig_cot = go.Figure()
+    cot_colors = ["#4fc3f7", "#81d4fa", "#ce93d8", "#f48fb1", "#fbbf24"]
+    for i, col in enumerate(sorted(cot_cols)):
+        s = df[col].dropna()
+        if len(s) > 2:
+            label = col.replace("COT_", "").replace("_NET_LEV", "")
+            fig_cot.add_trace(go.Bar(
+                x=s.index, y=s.values,
+                name=label,
+                marker_color=cot_colors[i % len(cot_colors)],
+                opacity=0.7,
+            ))
+    fig_cot.add_hline(y=0, line_dash="dot", line_color="white", opacity=0.3)
+    fig_cot.update_layout(
+        template=PLOTLY_THEME, height=380,
+        hovermode="x unified", barmode="group",
+        xaxis_title="Date", yaxis_title="Net Contracts (thousands)",
+        margin=dict(l=20, r=20, t=10, b=20),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02),
+    )
+    st.plotly_chart(fig_cot, use_container_width=True)
+
 # ── Tutorial overlay (must be LAST) ────────────────────────────────────
 from dashboard.tutorial import render_tutorial
 render_tutorial(page="spreads")

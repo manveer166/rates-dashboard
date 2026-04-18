@@ -5,7 +5,10 @@ a single clean DataFrame consumed by all analysis modules.
 Sources (in merge priority order — later sources fill gaps, not overwrite):
   1. Treasury.gov  — US Treasury par yields (primary, daily)
   2. FRED           — SOFR swaps, credit OAS, intl yields, macro  (daily/monthly)
-  3. EODHD          — Government bond yields, VIX, supplementary  (daily, paid API)
+  3. NY Fed         — SOFR/TGCR/BGCR rates, SOMA holdings (daily)
+  4. CFTC           — Commitment of Traders positioning (weekly, forward-filled)
+  5. DTCC           — SDR swap activity (best-effort, daily)
+  6. EODHD          — Government bond yields, VIX, supplementary  (daily, paid API)
 """
 
 import logging
@@ -14,6 +17,9 @@ import pandas as pd
 
 from data.fetchers.fred import FREDFetcher
 from data.fetchers.treasury import TreasuryFetcher
+from data.fetchers.nyfed import NYFedFetcher
+from data.fetchers.cftc import CFTCFetcher
+from data.fetchers.dtcc import DTCCFetcher
 from data.fetchers.eodhd import EODHDFetcher
 
 logger = logging.getLogger(__name__)
@@ -35,6 +41,18 @@ class DataPipeline:
         self.end_date   = end_date
         self.use_cache  = use_cache
 
+    def _safe_fetch(self, name: str, fetcher_cls) -> pd.DataFrame:
+        """Fetch from a non-critical source; return empty DataFrame on failure."""
+        try:
+            result = fetcher_cls(
+                self.start_date, self.end_date, use_cache=self.use_cache
+            ).fetch()
+            logger.info(f"{name} rows: {len(result)}, cols: {list(result.columns)}")
+            return result
+        except Exception as e:
+            logger.warning(f"{name} fetch failed (non-fatal): {e}")
+            return pd.DataFrame()
+
     def load(self) -> pd.DataFrame:
         logger.info("DataPipeline: starting load")
 
@@ -49,6 +67,10 @@ class DataPipeline:
         ).fetch()
         logger.info(f"FRED rows: {len(fred)}, cols: {list(fred.columns)}")
 
+        nyfed = self._safe_fetch("NYFed", NYFedFetcher)
+        cftc  = self._safe_fetch("CFTC",  CFTCFetcher)
+        dtcc  = self._safe_fetch("DTCC",  DTCCFetcher)
+
         eodhd = EODHDFetcher(
             self.start_date, self.end_date, use_cache=self.use_cache
         ).fetch()
@@ -56,8 +78,9 @@ class DataPipeline:
 
         # 2. Merge on date index (outer join keeps all trading days).
         #    Treasury.gov is the primary source; FRED adds SOFR/credit/macro;
-        #    EODHD fills gaps or adds series that the free sources miss.
-        sources = [df for df in (treasury, fred, eodhd) if not df.empty]
+        #    NY Fed adds authoritative SOFR/repo rates; CFTC adds positioning;
+        #    DTCC adds swap activity (best-effort); EODHD fills remaining gaps.
+        sources = [df for df in (treasury, fred, nyfed, cftc, dtcc, eodhd) if not df.empty]
 
         if not sources:
             logger.error("No data fetched from any source.")
