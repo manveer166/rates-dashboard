@@ -106,6 +106,8 @@ AVAILABLE_CHARTS = {
 @st.cache_data(ttl=3600, show_spinner="Loading S&P 500 history…")
 def _load_sp500():
     d = yf.download("^GSPC", start="2012-01-01", auto_adjust=True, progress=False)
+    if d is None or d.empty:
+        return pd.Series(dtype=float)
     s = d["Close"].squeeze().dropna()
     s.index = pd.to_datetime(s.index.date)
     return s
@@ -116,6 +118,9 @@ def _load_markets():
     for name, (ticker, _) in MKTS.items():
         try:
             d = yf.download(ticker, start="2019-01-01", auto_adjust=True, progress=False)
+            if d is None or d.empty:
+                out[name] = None
+                continue
             s = d["Close"].squeeze().dropna()
             s.index = pd.to_datetime(s.index.date)
             out[name] = s if len(s) > 100 else None
@@ -125,10 +130,18 @@ def _load_markets():
 
 @st.cache_data(ttl=3600, show_spinner="Loading risk parity data…")
 def _load_rp():
-    eq = yf.download("^GSPC", start="2017-01-01", auto_adjust=True, progress=False)["Close"].squeeze().dropna()
-    bd = yf.download("TLT",   start="2017-01-01", auto_adjust=True, progress=False)["Close"].squeeze().dropna()
-    eq.index = pd.to_datetime(eq.index.date)
-    bd.index = pd.to_datetime(bd.index.date)
+    eq_d = yf.download("^GSPC", start="2017-01-01", auto_adjust=True, progress=False)
+    bd_d = yf.download("TLT",   start="2017-01-01", auto_adjust=True, progress=False)
+    if eq_d is None or eq_d.empty:
+        eq = pd.Series(dtype=float)
+    else:
+        eq = eq_d["Close"].squeeze().dropna()
+        eq.index = pd.to_datetime(eq.index.date)
+    if bd_d is None or bd_d.empty:
+        bd = pd.Series(dtype=float)
+    else:
+        bd = bd_d["Close"].squeeze().dropna()
+        bd.index = pd.to_datetime(bd.index.date)
     return eq, bd
 
 @st.cache_data(ttl=3600, show_spinner="Loading vol control data…")
@@ -136,7 +149,10 @@ def _load_vol_control():
     aum=300e9; target_vol=0.12; lambda_30=0.94; lambda_90=0.97
     periods_fwd=80; tdpy=252; forward_vols=[0.20, 0.18, 0.16, 0.14, 0.12]
     sp = yf.Ticker("^GSPC")
-    df = sp.history(period="1y", auto_adjust=True)[["Close"]]
+    hist = sp.history(period="1y", auto_adjust=True)
+    if hist is None or hist.empty:
+        return pd.DataFrame(), pd.DataFrame()
+    df = hist[["Close"]]
     df["Return"] = np.log(df["Close"] / df["Close"].shift(1))
     df = df.reset_index()
 
@@ -589,10 +605,19 @@ MPL_BUILD_FNS = {
 # ══════════════════════════════════════════════════════════════════════════════
 # LOAD DATA
 # ══════════════════════════════════════════════════════════════════════════════
-sp      = _load_sp500()
-mkt_p   = _load_markets()
-rp_eq, rp_bd = _load_rp()
-_, merged_vc  = _load_vol_control()
+try:
+    sp      = _load_sp500()
+    mkt_p   = _load_markets()
+    rp_eq, rp_bd = _load_rp()
+    _, merged_vc  = _load_vol_control()
+except Exception as _load_err:
+    st.error(f"Failed to load market data from yfinance: {_load_err}")
+    st.info("This page requires an internet connection to fetch equity index data from Yahoo Finance. Please try again later.")
+    st.stop()
+
+if sp.empty:
+    st.error("Could not load S&P 500 data from Yahoo Finance. The service may be temporarily unavailable.")
+    st.stop()
 
 pos_hist, sp_hist_w, proj, flows_df, sr_df, syst = _compute_cta(sp, mkt_p)
 bond_exp, eq_exp, curr_bond, curr_eq, bond_lbl, eq_lbl = _compute_rp(rp_eq, rp_bd)

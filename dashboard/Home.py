@@ -1,6 +1,6 @@
 """
 Main Streamlit app entry point for the Rates Dashboard.
-Run with: streamlit run dashboard/app.py
+Run with: streamlit run dashboard/Home.py
 """
 
 import sys

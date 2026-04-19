@@ -33,7 +33,7 @@ SECTIONS = [
 def _inject_global_css() -> None:
     """Inject the design-system CSS tokens + Inter font on every page.
 
-    This mirrors the block in dashboard/app.py so that every page picks
+    This mirrors the block in dashboard/Home.py so that every page picks
     up the same blue palette, typography, and component styling — not
     just the Home page. Streamlit reruns each page in its own process,
     so each page must inject the styles itself.
