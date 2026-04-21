@@ -165,50 +165,7 @@ def build_scanner():
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
-def build_body(sdf, cfg):
-    if sdf.empty:
-        return "No scanner data available."
-    filt = sdf[sdf["Type"].isin(cfg.get("trade_types", []))].copy()
-    lines = [f"Rates Dashboard Alert — {datetime.now().strftime('%d %b %Y')}", "=" * 50, ""]
-
-    top = filt.dropna(subset=["Sharpe"]).nlargest(cfg.get("top_n", 10), "Sharpe")
-    if not top.empty:
-        lines.append(f"TOP {len(top)} TRADES BY SHARPE:")
-        lines.append("-" * 40)
-        for _, r in top.iterrows():
-            lines.append(f"  {r['Trade']:20s}  Sharpe={r['Sharpe']:+.2f}  Z={r['Z']:+.2f}  "
-                        f"E[Ret]={r['E[Ret]']:+.0f}  Risk={r['Risk']:.0f}  D1W={r['D1W']:+.1f}")
-        lines.append("")
-
-    if cfg.get("include_z_extremes"):
-        thresh = cfg.get("z_threshold", 2.0)
-        cheap = filt[filt["Z"] < -thresh].sort_values("Z")
-        rich = filt[filt["Z"] > thresh].sort_values("Z", ascending=False)
-        if not cheap.empty:
-            lines.append(f"CHEAP (Z < -{thresh}):")
-            lines.append("-" * 40)
-            for _, r in cheap.head(10).iterrows():
-                lines.append(f"  {r['Trade']:20s}  Z={r['Z']:+.2f}  Sharpe={r['Sharpe']:+.2f}")
-            lines.append("")
-        if not rich.empty:
-            lines.append(f"RICH (Z > +{thresh}):")
-            lines.append("-" * 40)
-            for _, r in rich.head(10).iterrows():
-                lines.append(f"  {r['Trade']:20s}  Z={r['Z']:+.2f}  Sharpe={r['Sharpe']:+.2f}")
-            lines.append("")
-
-    if cfg.get("include_big_movers"):
-        thresh = cfg.get("mover_threshold_bps", 10)
-        movers = filt[filt["D1W"].abs() > thresh].sort_values("D1W", key=abs, ascending=False)
-        if not movers.empty:
-            lines.append(f"BIG WEEKLY MOVERS (|D1W| > {thresh} bps):")
-            lines.append("-" * 40)
-            for _, r in movers.head(15).iterrows():
-                lines.append(f"  {r['Trade']:20s}  D1W={r['D1W']:+.1f}  Z={r['Z']:+.2f}")
-            lines.append("")
-
-    lines.append("— Macro Manv Rates Dashboard")
-    return "\n".join(lines)
+from analysis.alert_body import build_body  # noqa: F401  (re-exported for __main__)
 
 
 def send(recipients, body):
