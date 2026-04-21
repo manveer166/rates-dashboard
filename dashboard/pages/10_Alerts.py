@@ -247,31 +247,74 @@ def _build_alert_body(scanner_df, cfg):
     return _build_alert_body_new(scanner_df, cfg)
 
 
-if st.button("Preview Alert", use_container_width=True):
-    with st.spinner("Building scanner..."):
-        sdf = _build_scanner_df()
-    body = _build_alert_body(sdf, cfg)
-    st.code(body, language="text")
+col_prev, col_pdf, col_send = st.columns([1, 1, 1])
+
+with col_prev:
+    if st.button("📄 Preview Alert Text", use_container_width=True):
+        with st.spinner("Building scanner..."):
+            sdf = _build_scanner_df()
+        body = _build_alert_body(sdf, cfg)
+        st.code(body, language="text")
+
+with col_pdf:
+    if st.button("📊 Generate PDF", use_container_width=True):
+        with st.spinner("Building PDF…"):
+            from analysis.weekly_pdf import build_weekly_pdf
+            sdf = _build_scanner_df()
+            hist_df = get_master_df()
+            try:
+                pdf_path = build_weekly_pdf(sdf, hist_df, cfg)
+                with open(pdf_path, "rb") as f:
+                    pdf_bytes = f.read()
+                st.success(f"PDF ready — {pdf_path.name}")
+                st.download_button(
+                    label="⬇️ Download PDF",
+                    data=pdf_bytes,
+                    file_name=pdf_path.name,
+                    mime="application/pdf",
+                    use_container_width=True,
+                )
+            except Exception as e:
+                st.error(f"PDF build failed: {e}")
 
 st.divider()
 
-def _send_alert_gmail(recipients, body):
-    """Send alert to all recipients via Gmail SMTP."""
+def _send_alert_gmail(recipients, body_text, pdf_path=None):
+    """Send alert with PDF attachment via Gmail SMTP."""
+    import smtplib
+    from email.mime.application import MIMEApplication
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+    from datetime import date, timedelta
     from dashboard.state import _secret
+
     gmail_user = _secret("GMAIL_USER", "")
     gmail_pass = _secret("GMAIL_APP_PASSWORD", "")
     if not gmail_user or not gmail_pass:
         return 0, "Gmail credentials not configured in secrets."
 
-    import smtplib
-    from email.mime.text import MIMEText
+    today  = date.today()
+    monday = today - timedelta(days=today.weekday())
+    is_fri = today.weekday() == 4
+    day_label = "Recap" if is_fri else "Setup"
+    subject = f"Rates Weekly — Macro Manv · {monday.strftime('%-d %b %Y')} · {day_label}"
+
     sent = 0
     for addr in recipients:
         try:
-            msg = MIMEText(body)
-            msg["Subject"] = f"Rates Alert — {datetime.now().strftime('%d %b %Y')}"
-            msg["From"] = gmail_user
-            msg["To"] = addr
+            msg = MIMEMultipart()
+            msg["Subject"] = subject
+            msg["From"]    = gmail_user
+            msg["To"]      = addr
+            msg.attach(MIMEText(
+                "Your Rates Weekly PDF is attached.\n\n"
+                + body_text[:600] + "\n\n[See PDF for full formatted report]"
+            ))
+            if pdf_path and pdf_path.exists():
+                with open(pdf_path, "rb") as f:
+                    part = MIMEApplication(f.read(), _subtype="pdf")
+                    part["Content-Disposition"] = f'attachment; filename="{pdf_path.name}"'
+                    msg.attach(part)
             with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15) as s:
                 s.login(gmail_user, gmail_pass)
                 s.send_message(msg)
@@ -281,30 +324,38 @@ def _send_alert_gmail(recipients, body):
     return sent, None
 
 
-if st.button("Send Alert Now", type="primary", use_container_width=True):
-    with st.spinner("Building scanner and sending..."):
-        sdf = _build_scanner_df()
-        body = _build_alert_body(sdf, cfg)
+with col_send:
+    if st.button("🚀 Send PDF Alert", type="primary", use_container_width=True):
+        with st.spinner("Building PDF and sending…"):
+            from analysis.weekly_pdf import build_weekly_pdf
+            sdf  = _build_scanner_df()
+            body = _build_alert_body(sdf, cfg)
+            hist_df = get_master_df()
 
-        # Collect all recipients: primary + subscribers
-        recipients = set()
-        if cfg.get("email"):
-            recipients.add(cfg["email"])
-        for sub in _load_subscribers():
-            recipients.add(sub["email"])
+            pdf_path = None
+            try:
+                pdf_path = build_weekly_pdf(sdf, hist_df, cfg)
+            except Exception as e:
+                st.warning(f"PDF build failed, sending text only: {e}")
 
-        if not recipients:
-            st.error("No recipients — add a primary email or wait for subscribers.")
-        else:
-            sent, err = _send_alert_gmail(list(recipients), body)
-            if err:
-                st.warning(err)
-                st.code(body, language="text")
-            elif sent:
-                st.success(f"Alert sent to {sent} recipient(s).")
+            recipients = set()
+            if cfg.get("email"):
+                recipients.add(cfg["email"])
+            for sub in _load_subscribers():
+                recipients.add(sub["email"])
+
+            if not recipients:
+                st.error("No recipients — add a primary email or wait for subscribers.")
             else:
-                st.error("Failed to send to any recipient.")
+                sent, err = _send_alert_gmail(list(recipients), body, pdf_path=pdf_path)
+                if err:
+                    st.warning(err)
+                elif sent:
+                    label = pdf_path.name if pdf_path else "text email"
+                    st.success(f"Sent {label} to {sent} recipient(s).")
+                else:
+                    st.error("Failed to send to any recipient.")
 
-            ALERTS_LOG.parent.mkdir(parents=True, exist_ok=True)
-            with open(ALERTS_LOG, "a", newline="") as f:
-                csv.writer(f).writerow([datetime.now().isoformat(), len(recipients), sent])
+                ALERTS_LOG.parent.mkdir(parents=True, exist_ok=True)
+                with open(ALERTS_LOG, "a", newline="") as f:
+                    csv.writer(f).writerow([datetime.now().isoformat(), len(recipients), sent])

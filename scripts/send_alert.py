@@ -22,6 +22,8 @@ import logging
 import smtplib
 import sys
 from datetime import datetime
+from email.mime.application import MIMEApplication
+from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
 
@@ -166,19 +168,51 @@ def build_scanner():
 
 
 from analysis.alert_body import build_body  # noqa: F401  (re-exported for __main__)
+from analysis.weekly_pdf import build_weekly_pdf
 
 
-def send(recipients, body):
+def _monday_of_week():
+    from datetime import date, timedelta
+    d = date.today()
+    return d - timedelta(days=d.weekday())
+
+
+def send(recipients, body_text: str, pdf_path=None):
     if not GMAIL_USER or not GMAIL_PASS:
         logger.error("Gmail credentials missing from secrets.toml")
         return 0
+
+    from datetime import date, timedelta
+    monday = _monday_of_week()
+    is_friday = datetime.now().weekday() == 4
+    day_label = "Recap" if is_friday else "Setup"
+    subject = (
+        f"Rates Weekly — Macro Manv · {monday.strftime('%-d %b %Y')} · {day_label}"
+    )
+
     sent = 0
     for addr in recipients:
         try:
-            msg = MIMEText(body)
-            msg["Subject"] = f"Rates Alert — {datetime.now().strftime('%d %b %Y')}"
-            msg["From"] = GMAIL_USER
-            msg["To"] = addr
+            if pdf_path:
+                msg = MIMEMultipart()
+                msg.attach(MIMEText(
+                    "Your Rates Weekly PDF is attached.\n\n" + body_text[:800]
+                    + "\n\n[See attached PDF for full report]"
+                ))
+                with open(pdf_path, "rb") as f:
+                    part = MIMEApplication(f.read(), _subtype="pdf")
+                    part["Content-Disposition"] = (
+                        f'attachment; filename="{pdf_path.name}"'
+                    )
+                    msg.attach(part)
+            else:
+                msg = MIMEMultipart()
+                msg.attach(MIMEText(body_text))
+
+            msg["Subject"] = subject
+            msg["From"]    = GMAIL_USER
+            msg["To"]      = addr
+
             with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15) as s:
                 s.login(GMAIL_USER, GMAIL_PASS)
                 s.send_message(msg)
@@ -190,6 +224,9 @@ def send(recipients, body):
 
 
 if __name__ == "__main__":
+    import pandas as pd
+    from data.fetchers.base import CACHE_DIR
+
     cfg = load_config()
     if not cfg.get("enabled", True):
         logger.info("Alerts disabled in config — exiting.")
@@ -198,6 +235,25 @@ if __name__ == "__main__":
     logger.info("Building scanner...")
     sdf = build_scanner()
     body = build_body(sdf, cfg)
+
+    # Load master history for curve table
+    hist_df = None
+    master_path = CACHE_DIR / "master.parquet"
+    if master_path.exists():
+        try:
+            hist_df = pd.read_parquet(master_path)
+            hist_df.index = pd.to_datetime(hist_df.index)
+        except Exception as e:
+            logger.warning(f"Could not load master cache: {e}")
+
+    # Build PDF
+    pdf_path = None
+    try:
+        logger.info("Building PDF...")
+        pdf_path = build_weekly_pdf(sdf, hist_df, cfg)
+        logger.info(f"PDF ready: {pdf_path}")
+    except Exception as e:
+        logger.warning(f"PDF build failed (will send text only): {e}")
 
     recipients = set()
     if cfg.get("email"):
@@ -210,5 +266,5 @@ if __name__ == "__main__":
         sys.exit(1)
 
     logger.info(f"Sending to {len(recipients)} recipient(s)...")
-    sent = send(list(recipients), body)
+    sent = send(list(recipients), body, pdf_path=pdf_path)
     logger.info(f"Done — {sent}/{len(recipients)} sent.")
