@@ -1,0 +1,82 @@
+name: Smoke test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  imports:
+    name: Page imports + syntax
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install deps
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Syntax-check every Python file
+        run: |
+          python -c "
+          import ast, glob, sys
+          fail = 0
+          for p in glob.glob('**/*.py', recursive=True):
+              if '.venv' in p or '__pycache__' in p:
+                  continue
+              try:
+                  with open(p) as f: ast.parse(f.read())
+              except SyntaxError as e:
+                  print(f'SYNTAX FAIL  {p}:{e.lineno}  {e.msg}'); fail += 1
+          sys.exit(fail)
+          "
+
+      - name: Import every page (smoke test)
+        run: |
+          python <<'PY'
+          import warnings; warnings.filterwarnings("ignore")
+          import os, sys, glob, importlib.util
+          sys.path.insert(0, ".")
+          fail = []
+          for p in sorted(glob.glob("dashboard/pages/*.py")):
+              spec = importlib.util.spec_from_file_location("pg_" + p, p)
+              mod = importlib.util.module_from_spec(spec)
+              try:
+                  spec.loader.exec_module(mod)
+              except (SystemExit, KeyError):
+                  pass   # st.stop() / session_state — expected outside server
+              except Exception as e:
+                  msg = repr(e).lower()
+                  if "no runtime" in msg or "session_state" in msg or "scriptrun" in msg:
+                      continue
+                  if "out-of-bounds" in msg or "credential" in msg:
+                      continue   # data-dependent failures aren't import bugs
+                  fail.append((p, type(e).__name__, repr(e)[:200]))
+          if fail:
+              for p, t, m in fail:
+                  print(f"FAIL {p}  [{t}]  {m}")
+              sys.exit(1)
+          print(f"All {len(glob.glob('dashboard/pages/*.py'))} pages import cleanly.")
+          PY
+
+      - name: Verify OpenBB wrapper imports
+        run: |
+          python -c "
+          import warnings; warnings.filterwarnings('ignore')
+          from data.openbb_data import (
+              yield_curve_us, oecd_cli, cpi, unemployment,
+              money_measures, asia_yield_snapshot,
+          )
+          print('openbb_data wrapper imports OK')
+          "

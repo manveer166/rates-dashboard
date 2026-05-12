@@ -11,12 +11,17 @@ import pandas as pd
 from dotenv import load_dotenv
 
 from config import CORP_SPREAD_SERIES, INTL_SERIES, MACRO_SERIES, SOFR_SERIES
+try:
+    from config import FX_SERIES
+except ImportError:
+    FX_SERIES = {}
 from data.fetchers.base import BaseFetcher, load_cache, save_cache
 
 load_dotenv()
 logger = logging.getLogger(__name__)
 
-ALL_FRED_SERIES = {**SOFR_SERIES, **CORP_SPREAD_SERIES, **MACRO_SERIES, **INTL_SERIES}
+ALL_FRED_SERIES = {**SOFR_SERIES, **CORP_SPREAD_SERIES, **MACRO_SERIES,
+                   **INTL_SERIES, **FX_SERIES}
 
 
 class FREDFetcher(BaseFetcher):

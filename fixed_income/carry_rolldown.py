@@ -34,16 +34,35 @@ def interpolate_rate(
     target_tenor: float,
 ) -> float:
     """
-    Linear interpolation of yield curve at an arbitrary tenor.
+    Linear interpolation (with linear extrapolation beyond boundaries) of the
+    yield curve at an arbitrary tenor.
 
     Parameters
     ----------
     tenors       : list of tenor years, e.g. [2, 5, 10, 30]
     rates        : corresponding par rates / yields in %
     target_tenor : tenor to interpolate, e.g. 9.917 (= 10Y rolled 1M)
+
+    Note: np.interp clamps at boundaries.  For forward-carry on long-end tenors
+    (e.g. 30Y swap held 1M needs rate at 30.083Y), clamping makes the forward
+    equal the spot, collapsing carry to zero.  Linear extrapolation from the
+    last two knots gives a well-defined estimate.
     """
     tenors_arr = np.array(tenors, dtype=float)
-    rates_arr = np.array(rates, dtype=float)
+    rates_arr  = np.array(rates,  dtype=float)
+
+    # Past the far end: extrapolate using last segment slope
+    if target_tenor > tenors_arr[-1] and len(tenors_arr) >= 2:
+        slope = ((rates_arr[-1] - rates_arr[-2])
+                 / (tenors_arr[-1] - tenors_arr[-2]))
+        return float(rates_arr[-1] + slope * (target_tenor - tenors_arr[-1]))
+
+    # Before the near end: extrapolate using first segment slope
+    if target_tenor < tenors_arr[0] and len(tenors_arr) >= 2:
+        slope = ((rates_arr[1] - rates_arr[0])
+                 / (tenors_arr[1] - tenors_arr[0]))
+        return float(rates_arr[0] + slope * (target_tenor - tenors_arr[0]))
+
     return float(np.interp(target_tenor, tenors_arr, rates_arr))
 
 
@@ -100,11 +119,15 @@ def swap_rolldown(
     tenor_years     : current tenor of the instrument
     holding_months  : holding period in months
     """
-    rate_now = interpolate_rate(curve_tenors, curve_rates, tenor_years)
+    rate_now   = interpolate_rate(curve_tenors, curve_rates, tenor_years)
     rate_after = interpolate_rate(
         curve_tenors, curve_rates, tenor_years - holding_months / 12
     )
-    return (rate_after - rate_now) * 100  # bps — positive = favourable for receiver
+    # Sign convention: positive rolldown = receiver PROFITS
+    # Receiver profits when the shorter-maturity rate is LOWER than spot (curve
+    # slopes up at that point).  P&L = (rate_now − rate_after), so positive when
+    # rate_after < rate_now (upward-sloping curve).
+    return (rate_now - rate_after) * 100  # bps — positive = favourable for receiver
 
 
 def total_return(carry_bps: float, rolldown_bps: float) -> float:

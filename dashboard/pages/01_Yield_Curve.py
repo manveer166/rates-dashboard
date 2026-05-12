@@ -13,6 +13,7 @@ from config import TENOR_LABELS, TENOR_YEARS, PLOTLY_THEME
 from dashboard.components.controls import render_sidebar_controls
 from dashboard.components.header import render_page_header
 from dashboard.state import get_master_df, init_session_state
+from dashboard.state_url import url_state
 
 st.set_page_config(page_title="Yield Curve", page_icon="📉", layout="wide")
 init_session_state()
@@ -21,6 +22,7 @@ render_page_header(current="Yield Curve")
 
 st.title("📉 Yield Curve Analysis")
 st.markdown("US Treasury yield curve snapshot, historical evolution, and Nelson-Siegel model fit.")
+url_state.share_button()
 st.divider()
 
 df = get_master_df()
@@ -33,17 +35,30 @@ avail_years = [TENOR_YEARS[TENOR_LABELS.index(t)] for t in avail]
 
 # ── Date selector for curve snapshot ──────────────────────────────────────
 dates_available = df.index.strftime("%Y-%m-%d").tolist()
+default_date    = dates_available[-1]
+default_compare = dates_available[max(0, len(dates_available) - 252)]
+
+# URL state — shareable view: ?d=2026-04-15&c=2026-01-15
+url_d = url_state.read("d", default=default_date)
+url_c = url_state.read("c", default=default_compare)
+
 selected_date = st.selectbox(
     "Select curve date",
     options=dates_available,
-    index=len(dates_available) - 1,
+    index=dates_available.index(url_d) if url_d in dates_available else len(dates_available) - 1,
+    key="yc_selected_date",
 )
-selected_ts = st.session_state.get("curve_compare_date", dates_available[max(0, len(dates_available)-252)])
+compare_options = ["None"] + dates_available
 compare_date = st.selectbox(
     "Compare with",
-    options=["None"] + dates_available,
-    index=max(0, len(dates_available)-252),
+    options=compare_options,
+    index=compare_options.index(url_c) if url_c in compare_options else
+          (1 + max(0, len(dates_available) - 252)),
+    key="yc_compare_date",
 )
+# Sync user changes back to URL (only if non-default — keeps URLs short)
+url_state.write_widget("d", selected_date, default=default_date)
+url_state.write_widget("c", compare_date,  default=default_compare)
 
 # ── Nelson-Siegel fit ──────────────────────────────────────────────────────
 row        = df.loc[selected_date, avail]

@@ -1,0 +1,59 @@
+# Local production-equivalent run:
+#   docker compose up --build
+#   open http://localhost:8501
+#
+# Volumes:
+#   • ./data/cache       — parquet master + per-source caches survive container restarts
+#   • ./briefs           — generated daily/weekly briefs visible from host
+#   • ./.streamlit       — secrets.toml mounted read-only
+#   • ./data/*.json      — JSON state (TotW, A/B, journal, subscribers, email gate)
+
+services:
+  dashboard:
+    build: .
+    container_name: macromanv-dashboard
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    environment:
+      # Override these with .env or `docker compose --env-file`
+      - DASHBOARD_URL=${DASHBOARD_URL:-http://localhost:8501}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-change-me}
+      - AUTH_SECRET=${AUTH_SECRET:-change-me-in-production}
+    volumes:
+      - ./data/cache:/app/data/cache
+      - ./briefs:/app/briefs
+      - ./.streamlit:/app/.streamlit:ro
+      - ./data/trade_of_week.json:/app/data/trade_of_week.json
+      - ./data/trade_journal.json:/app/data/trade_journal.json
+      - ./data/ab_tests.json:/app/data/ab_tests.json
+      - ./data/page_email_access.json:/app/data/page_email_access.json
+      - ./data/premium_pages.json:/app/data/premium_pages.json
+      - ./data/cta_audit.json:/app/data/cta_audit.json
+      - ./data/alerts_config.json:/app/data/alerts_config.json
+      - ./data/subscribers.csv:/app/data/subscribers.csv
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8501/_stcore/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # ──────────────────────────────────────────────────────────────────────
+  # Optional: cron container for daily / weekly briefs.
+  # Uncomment and adjust the cron lines below.
+  #
+  # cron:
+  #   build: .
+  #   container_name: macromanv-cron
+  #   restart: unless-stopped
+  #   depends_on:
+  #     - dashboard
+  #   command: >
+  #     sh -c "echo '0 12 * * 1-5 cd /app && python scripts/daily_brief.py' > /tmp/crontab &&
+  #            echo '0 12 * * 1,5 cd /app && python scripts/send_alert.py' >> /tmp/crontab &&
+  #            crontab /tmp/crontab && crond -f"
+  #   volumes:
+  #     - ./data/cache:/app/data/cache
+  #     - ./briefs:/app/briefs
+  #     - ./.streamlit:/app/.streamlit:ro

@@ -1,0 +1,41 @@
+# Dockerfile build context — keep image lean
+
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local-only files
+.git/
+.gitignore
+.DS_Store
+*.log
+/tmp/
+
+# Don't ship the cached data — runtime fetches fresh
+data/cache/*.parquet
+briefs/
+
+# IDE / OS noise
+.idea/
+.vscode/
+.claude/
+*.swp
+
+# Build artefacts
+*.egg-info/
+dist/
+build/
+
+# Secrets — these are mounted at runtime, not baked into the image
+.env
+.env.*
+.streamlit/secrets.toml
+data/page_email_access.json
+data/subscribers.csv
+data/trade_journal.json
+data/trade_of_week.json
+data/ab_tests.json

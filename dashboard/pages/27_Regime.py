@@ -1,0 +1,403 @@
+"""Page 27 — Rates Regime Detector.
+
+K-means clusters every historic day into one of four regimes based on:
+  • level     (10Y nominal)
+  • slope     (2s10s in bps)
+  • curvature (5Y - 0.5*(2Y+10Y) — belly cheapness)
+  • vol       (VIX z-score as a stand-in for rates-vol regime)
+
+Renders a regime timeline + the current regime's label + within-regime
+1Y Z-scores for the scanner's top trades — so you can see which trades
+look cheap/rich CONDITIONAL on this regime, not against all-history.
+"""
+
+from __future__ import annotations  # PEP 604 unions on Python 3.9
+
+import sys
+from datetime import date
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+import numpy as np
+import pandas as pd
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import streamlit as st
+
+try:
+    from sklearn.cluster import KMeans
+    from sklearn.preprocessing import StandardScaler
+    SKLEARN_OK = True
+except ImportError:
+    SKLEARN_OK = False
+
+from config import PLOTLY_THEME
+from dashboard.components.controls import render_sidebar_controls
+from dashboard.components.header import render_page_header
+from dashboard.state import get_master_df, init_session_state, password_gate
+
+st.set_page_config(page_title="Regime", page_icon="🧭", layout="wide")
+password_gate()
+init_session_state()
+render_sidebar_controls()
+render_page_header(current="Regime")
+
+from dashboard.components.premium_gate import premium_gate
+if not premium_gate("Regime"):
+    st.stop()
+
+st.title("🧭 Rates Regime Detector")
+st.caption(
+    "Daily clustering of curve state + vol into 4 regimes, with the current "
+    "regime highlighted and scanner Z-scores recomputed conditional on it."
+)
+st.divider()
+
+if not SKLEARN_OK:
+    st.error("scikit-learn isn't installed in this environment. "
+             "`pip install scikit-learn` to enable the regime detector.")
+    st.stop()
+
+df = get_master_df()
+if df.empty:
+    st.error("No master data — refresh the cache.")
+    st.stop()
+
+# ── Build feature matrix ──────────────────────────────────────────────────
+needed = ["2Y", "5Y", "10Y"]
+if any(c not in df.columns for c in needed):
+    st.warning(f"Need {needed} in cache — missing some.")
+    st.stop()
+
+feat = pd.DataFrame(index=df.index)
+feat["level"]     = df["10Y"]
+feat["slope"]     = (df["10Y"] - df["2Y"]) * 100   # bps
+# 5Y-bullet curvature (positive = belly cheap)
+feat["curvature"] = (2 * df["5Y"] - df["2Y"] - df["10Y"]) * 100
+if "VIX" in df.columns:
+    vix = df["VIX"].dropna()
+    if not vix.empty:
+        # Use VIX z-score as vol regime proxy (rolling 252d)
+        roll_mean = vix.rolling(252, min_periods=60).mean()
+        roll_std  = vix.rolling(252, min_periods=60).std().replace(0, np.nan)
+        feat["vol"] = ((vix - roll_mean) / roll_std).reindex(feat.index).ffill(limit=5)
+    else:
+        feat["vol"] = 0.0
+else:
+    feat["vol"] = 0.0
+
+feat = feat.dropna()
+if len(feat) < 60:
+    st.warning("Not enough overlapping data to cluster — need 60+ days.")
+    st.stop()
+
+# ── Cluster ───────────────────────────────────────────────────────────────
+n_clusters = st.slider("Number of regimes", 3, 5, 4, key="regime_k")
+
+scaler = StandardScaler()
+X      = scaler.fit_transform(feat.values)
+km     = KMeans(n_clusters=n_clusters, n_init=10, random_state=42).fit(X)
+labels = pd.Series(km.labels_, index=feat.index, name="cluster")
+
+# Auto-label clusters by examining centroids in original space
+centroids = pd.DataFrame(scaler.inverse_transform(km.cluster_centers_),
+                         columns=feat.columns)
+
+def _name_cluster(row):
+    """Give each centroid a human-friendly label."""
+    parts = []
+    # Vol regime
+    if "vol" in row.index:
+        if row["vol"] > 0.7:    parts.append("High-vol")
+        elif row["vol"] < -0.5: parts.append("Low-vol")
+    # Curve shape
+    if   row["slope"] < -10:  parts.append("inverted")
+    elif row["slope"] > 100:  parts.append("steep")
+    else:                     parts.append("mid-slope")
+    # Belly tilt
+    if   row["curvature"] >  20: parts.append("belly cheap")
+    elif row["curvature"] < -20: parts.append("belly rich")
+    return ", ".join(parts) if parts else "Mixed"
+
+centroids["label"] = centroids.apply(_name_cluster, axis=1)
+
+# ── Current regime ────────────────────────────────────────────────────────
+current_cluster = int(labels.iloc[-1])
+current_label   = centroids.loc[current_cluster, "label"]
+current_centroid = centroids.iloc[current_cluster]
+
+st.subheader(f"📍 Current regime — cluster {current_cluster}: **{current_label}**")
+m1, m2, m3, m4 = st.columns(4)
+m1.metric("10Y level",   f"{feat['level'].iloc[-1]:.2f}%",
+          f"{feat['level'].iloc[-1] - current_centroid['level']:+.2f} vs centroid")
+m2.metric("2s10s slope", f"{feat['slope'].iloc[-1]:+.0f} bps",
+          f"{feat['slope'].iloc[-1] - current_centroid['slope']:+.0f} vs centroid")
+m3.metric("Curvature",   f"{feat['curvature'].iloc[-1]:+.0f} bps",
+          f"{feat['curvature'].iloc[-1] - current_centroid['curvature']:+.0f} vs centroid")
+m4.metric("Vol z-score", f"{feat['vol'].iloc[-1]:+.2f}",
+          f"{feat['vol'].iloc[-1] - current_centroid['vol']:+.2f} vs centroid")
+
+st.divider()
+
+# ── Regime timeline ───────────────────────────────────────────────────────
+st.subheader("📅 Regime timeline")
+palette = ["#4fc3f7", "#a78bfa", "#fb923c", "#4ade80", "#f472b6"]
+
+fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05,
+                    row_heights=[0.55, 0.45],
+                    subplot_titles=("10Y nominal — coloured by regime",
+                                    "2s10s slope (bps)"))
+# Plot level segmented by regime
+for c in range(n_clusters):
+    mask = labels == c
+    sub  = feat["level"][mask]
+    fig.add_trace(go.Scatter(x=sub.index, y=sub.values,
+                             mode="markers", marker=dict(size=4, color=palette[c]),
+                             name=f"R{c}: {centroids.loc[c, 'label']}",
+                             showlegend=True),
+                  row=1, col=1)
+
+fig.add_trace(go.Scatter(x=feat.index, y=feat["slope"],
+                         line=dict(color="#94a8c9", width=1.5),
+                         showlegend=False),
+              row=2, col=1)
+fig.add_hline(y=0, line_dash="dot", line_color="#6a7e9e", row=2, col=1)
+
+fig.update_layout(template=PLOTLY_THEME, height=560,
+                  margin=dict(l=10, r=10, t=40, b=10),
+                  hovermode="x unified",
+                  legend=dict(orientation="h", yanchor="bottom", y=1.06,
+                              xanchor="right", x=1, font=dict(size=10)))
+st.plotly_chart(fig, use_container_width=True)
+
+# ── Cluster cheat sheet ───────────────────────────────────────────────────
+st.subheader("🧬 Cluster centroids")
+disp = centroids.copy()
+disp["days_in_regime"]  = [int((labels == i).sum()) for i in range(n_clusters)]
+disp["pct_of_history"]  = (disp["days_in_regime"] / len(labels) * 100).round(1)
+disp["last_seen"]       = [labels[labels == i].index.max().date() if (labels == i).any() else None
+                           for i in range(n_clusters)]
+st.dataframe(disp.round(2), use_container_width=True)
+
+st.divider()
+
+# ── Within-regime conditional Z-scores ────────────────────────────────────
+st.subheader("📐 Within-regime Z-scores")
+st.caption(
+    "For the current regime only: which curves/flies are cheapest vs their "
+    "history WITHIN this regime (not all-history). A trade can be 'unconditionally "
+    "fair' but 'conditionally cheap' — that's the alpha you want to find."
+)
+
+regime_dates = labels[labels == current_cluster].index
+ALL = ["2Y","3Y","5Y","7Y","10Y","20Y","30Y"]
+present = [t for t in ALL if t in df.columns]
+
+rows = []
+for i in range(len(present)):
+    for j in range(i + 1, len(present)):
+        t1, t2 = present[i], present[j]
+        spread = (df[t2] - df[t1]).dropna() * 100  # bps
+        in_reg = spread.reindex(regime_dates).dropna()
+        all_h  = spread.tail(252).dropna()
+        if len(in_reg) < 20 or len(all_h) < 60: continue
+        z_in   = (spread.iloc[-1] - in_reg.mean()) / in_reg.std() if in_reg.std() > 0 else 0
+        z_all  = (spread.iloc[-1] - all_h.mean()) / all_h.std() if all_h.std() > 0 else 0
+        rows.append({
+            "Spread":      f"{t1}/{t2}",
+            "Current bps": round(spread.iloc[-1], 1),
+            "Z (1Y all)":  round(z_all, 2),
+            "Z (in regime)": round(z_in, 2),
+            "Cheap-by-regime": round(z_in - z_all, 2),  # negative = more cheap conditionally
+            "Days in regime": len(in_reg),
+        })
+res = pd.DataFrame(rows).sort_values("Z (in regime)")
+st.dataframe(res, use_container_width=True, hide_index=True)
+st.caption(
+    "**Cheap-by-regime** column: negative means *more dislocated within this "
+    "regime than against full history* — those are the conditional opportunities."
+)
+
+st.divider()
+
+# ── Regime-conditional expected-PnL & Sharpe ─────────────────────────────
+st.subheader("📊 Expected PnL & Sharpe — by regime")
+st.caption(
+    "For each structure, daily PnL is computed assuming you held it on every "
+    "day the regime was active, then annualised. Sharpe is signed — **positive "
+    "= receive was the winning side, negative = pay was the winning side**. "
+    "Magnitudes mean the same as on the Backtester page."
+)
+
+# Build a curated trade universe (simple spreads, non-DV01-weighted because we
+# only need a stable signal — full DV01 sizing lives in the Backtester / Builder).
+def _level_series(df, struct, tenors):
+    if struct == "Outright":
+        return df[tenors[0]].dropna()
+    if struct == "Curve":
+        t1, t2 = tenors
+        return (df[t2] - df[t1]).dropna()
+    # Fly: 2*belly - wing1 - wing2 (simple, equal-weight)
+    w1, b, w2 = tenors
+    return (2 * df[b] - df[w1] - df[w2]).dropna()
+
+
+def _stats(level: pd.Series, regime_dates: pd.DatetimeIndex) -> dict | None:
+    pnl_recv = -level.diff().dropna() * 100   # bps, receive PnL
+    pnl_in   = pnl_recv.reindex(regime_dates).dropna()
+    if len(pnl_in) < 20:
+        return None
+    mean_bps_d = float(pnl_in.mean())
+    std_bps_d  = float(pnl_in.std())
+    if std_bps_d == 0:
+        return None
+    cum = pnl_in.cumsum()
+    drawdown = float((cum - cum.cummax()).min())  # most negative
+    return {
+        "days":       int(len(pnl_in)),
+        "ann_bps":    round(mean_bps_d * 252, 0),       # bps/yr (signed)
+        "vol_bps":    round(std_bps_d * np.sqrt(252), 0),
+        "sharpe":     round(mean_bps_d / std_bps_d * np.sqrt(252), 2),
+        "hit_rate":   round(float((pnl_in > 0).mean()) * 100, 0),
+        "max_dd_bps": round(drawdown, 0),
+    }
+
+
+TRADE_UNIVERSE = [
+    # Outrights
+    *[("Outright", [t]) for t in present],
+    # Curves
+    ("Curve", ["2Y", "5Y"]),  ("Curve", ["2Y", "10Y"]), ("Curve", ["2Y", "30Y"]),
+    ("Curve", ["5Y", "10Y"]), ("Curve", ["5Y", "30Y"]), ("Curve", ["10Y", "30Y"]),
+    # Flies
+    ("Fly", ["2Y", "5Y", "10Y"]),  ("Fly", ["2Y", "5Y", "30Y"]),
+    ("Fly", ["2Y", "10Y", "30Y"]), ("Fly", ["5Y", "10Y", "30Y"]),
+    ("Fly", ["3Y", "5Y", "7Y"]),   ("Fly", ["5Y", "7Y", "10Y"]),
+]
+
+# Filter universe to trades with all tenors in cache
+universe = [
+    (struct, tt) for struct, tt in TRADE_UNIVERSE
+    if all(t in df.columns for t in tt)
+]
+
+
+def _trade_label(struct, tenors):
+    if struct == "Outright": return tenors[0]
+    if struct == "Curve":    return f"{tenors[0]}/{tenors[1]} curve"
+    return f"{tenors[0]}{tenors[1]}{tenors[2]} fly"
+
+
+# Compute stats for every (trade, regime) pair
+matrix = []     # list of dicts for the dataframe
+heat_z  = []    # rows = trades, cols = regimes; value = Sharpe
+trade_labels = []
+for struct, tt in universe:
+    lvl = _level_series(df, struct, tt)
+    label = _trade_label(struct, tt)
+    trade_labels.append(label)
+    row_sharpes = []
+    for c in range(n_clusters):
+        regime_dates = labels[labels == c].index
+        s = _stats(lvl, regime_dates)
+        sharpe = s["sharpe"] if s else np.nan
+        row_sharpes.append(sharpe)
+        if c == current_cluster and s is not None:
+            matrix.append({
+                "Trade":          label,
+                "Type":           struct,
+                "Direction":      "Receive" if s["sharpe"] > 0 else "Pay",
+                "Sharpe":         abs(s["sharpe"]),
+                "Sharpe (signed)": s["sharpe"],
+                "Ann PnL (bps)":  s["ann_bps"] if s["sharpe"] > 0 else -s["ann_bps"],
+                "Vol (bps)":      s["vol_bps"],
+                "Hit rate %":     s["hit_rate"] if s["sharpe"] > 0 else 100 - s["hit_rate"],
+                "Max DD (bps)":   s["max_dd_bps"],
+                "Days":           s["days"],
+            })
+    heat_z.append(row_sharpes)
+
+# ── 1. Top trades in current regime ──────────────────────────────────────
+if matrix:
+    st.markdown(
+        f"**🎯 Top trades in current regime — {current_label}**  "
+        f"<span style='color:#94a8c9'>(N = {(labels == current_cluster).sum()} days)</span>",
+        unsafe_allow_html=True,
+    )
+    mdf = pd.DataFrame(matrix).sort_values("Sharpe", ascending=False)
+    st.dataframe(
+        mdf.head(15)[["Trade", "Type", "Direction", "Sharpe (signed)",
+                       "Ann PnL (bps)", "Vol (bps)", "Hit rate %",
+                       "Max DD (bps)", "Days"]],
+        use_container_width=True, hide_index=True,
+        column_config={
+            "Sharpe (signed)": st.column_config.NumberColumn(format="%+.2f"),
+            "Ann PnL (bps)":   st.column_config.NumberColumn(format="%+.0f"),
+            "Max DD (bps)":    st.column_config.NumberColumn(format="%.0f"),
+        },
+    )
+else:
+    st.info("Not enough days in the current regime to compute conditional stats.")
+
+
+# ── 2. Sharpe heatmap (trade × regime) ───────────────────────────────────
+st.markdown("**🔥 Sharpe heatmap — trade × regime**")
+st.caption(
+    "Green cells = receive worked in this regime, red = pay worked. "
+    "Magnitude = annualised Sharpe of the winning direction. "
+    "Look for trades that are reliably profitable in the current regime "
+    "(highlighted column header) but break down in others — those are your "
+    "regime-specific edges."
+)
+
+regime_labels_pretty = [f"R{c}\n{centroids.loc[c,'label']}" for c in range(n_clusters)]
+heat_z_arr = np.array(heat_z)
+hm = go.Figure(data=go.Heatmap(
+    z=heat_z_arr,
+    x=regime_labels_pretty,
+    y=trade_labels,
+    colorscale=[
+        [0.0, "#7f1d1d"], [0.25, "#431407"], [0.45, "#0a1628"],
+        [0.55, "#0a1628"], [0.75, "#14532d"], [1.0, "#166534"],
+    ],
+    zmid=0,
+    zmin=-2.5, zmax=2.5,
+    colorbar=dict(title="Sharpe"),
+    hovertemplate="Trade: %{y}<br>Regime: %{x}<br>Sharpe: %{z:+.2f}<extra></extra>",
+))
+# Highlight current regime column with a vertical line
+hm.add_vline(x=current_cluster, line_color="#fbbf24", line_width=2,
+              annotation_text="Current", annotation_position="top",
+              annotation_font_color="#fbbf24")
+hm.update_layout(template=PLOTLY_THEME,
+                  height=max(420, 22 * len(trade_labels)),
+                  margin=dict(l=10, r=10, t=40, b=10),
+                  yaxis=dict(autorange="reversed"))
+st.plotly_chart(hm, use_container_width=True)
+
+# ── 3. Best 3 trades in current regime — quick-pick callout ──────────────
+if matrix:
+    st.markdown("**⚡ Quick pick — top 3 in current regime**")
+    top3 = sorted(matrix, key=lambda r: -r["Sharpe"])[:3]
+    cols = st.columns(3)
+    for i, t in enumerate(top3):
+        sign_col = "#4ade80" if t["Sharpe (signed)"] > 0 else "#f87171"
+        with cols[i]:
+            st.markdown(
+                f"""
+                <div style='background:#122340;border-left:3px solid {sign_col};
+                            border-radius:6px;padding:12px 14px;'>
+                <div style='color:#94a8c9;font-size:11px;letter-spacing:1px;
+                            font-weight:700'>{t['Direction'].upper()}</div>
+                <div style='color:#e8eef9;font-size:18px;font-weight:700;
+                            margin:4px 0 6px'>{t['Trade']}</div>
+                <div style='color:{sign_col};font-size:14px;font-weight:700'>
+                    Sharpe {t['Sharpe (signed)']:+.2f}  ·  PnL {t['Ann PnL (bps)']:+.0f} bps/yr
+                </div>
+                <div style='color:#6a7e9e;font-size:11px;margin-top:6px'>
+                    Hit rate {t['Hit rate %']:.0f}%  ·  Vol {t['Vol (bps)']:.0f} bps  ·  N = {t['Days']} days
+                </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )

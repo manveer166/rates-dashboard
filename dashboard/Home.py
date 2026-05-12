@@ -397,6 +397,10 @@ def main():
         unsafe_allow_html=True,
     )
 
+    # ── Latest from Macro Manv (RSS tile) ──────────────────────────────────
+    from dashboard.components.news import render_substack_tile
+    render_substack_tile(limit=3, campaign="home_tile")
+
     st.divider()
 
     # ── Lookback selector (top of page) ───────────────────────────────────

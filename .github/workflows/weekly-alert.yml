@@ -1,0 +1,55 @@
+name: Weekly alert (Mon + Fri)
+
+on:
+  schedule:
+    # Mon + Fri 11:00 UTC ≈ 07:00 ET
+    - cron: "0 11 * * 1,5"
+  workflow_dispatch: {}
+
+jobs:
+  alert:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install deps
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Materialise secrets
+        env:
+          FRED_API_KEY:       ${{ secrets.FRED_API_KEY }}
+          DASHBOARD_URL:      ${{ secrets.DASHBOARD_URL }}
+          GMAIL_USER:         ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          ADMIN_PASSWORD:     ${{ secrets.ADMIN_PASSWORD }}
+        run: |
+          mkdir -p .streamlit
+          cat > .streamlit/secrets.toml <<EOF
+          FRED_API_KEY = "${FRED_API_KEY}"
+          DASHBOARD_URL = "${DASHBOARD_URL}"
+          GMAIL_USER = "${GMAIL_USER}"
+          GMAIL_APP_PASSWORD = "${GMAIL_APP_PASSWORD}"
+          ADMIN_PASSWORD = "${ADMIN_PASSWORD}"
+          EOF
+
+      - name: Send weekly alert
+        run: |
+          python scripts/send_alert.py
+
+      - name: Upload PDF artefacts
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-alert-${{ github.run_id }}
+          path: briefs/
+          retention-days: 90

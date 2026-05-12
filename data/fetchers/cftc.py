@@ -1,7 +1,10 @@
 """
 Fetch CFTC Commitment of Traders data for Treasury and SOFR futures positioning.
-Uses the Socrata API on publicreporting.cftc.gov (Traders in Financial Futures report).
+Uses the CFTC Traders in Financial Futures (TFF) Socrata dataset.
 No API key required.
+
+Correct endpoint: gpe5-46if  (TFF — has Leveraged Funds + Asset Manager breakdown)
+The legacy endpoint jun7-fc8e is the standard COT and does NOT have those categories.
 """
 
 import logging
@@ -13,31 +16,31 @@ from data.fetchers.base import BaseFetcher, load_cache, save_cache
 
 logger = logging.getLogger(__name__)
 
-# CFTC contract market codes for the instruments we care about
+# CFTC contract market codes for rates futures in the TFF report
 CONTRACT_CODES: Dict[str, str] = {
-    "2Y": "042601",
-    "5Y": "044601",
-    "10Y": "043602",
-    "30Y": "020601",
-    "SOFR": "710601",
+    "2Y":   "042601",   # UST 2Y Note
+    "5Y":   "044601",   # UST 5Y Note
+    "10Y":  "043602",   # UST 10Y Note
+    "30Y":  "020601",   # UST Bond
+    "SOFR": "710601",   # 3M SOFR / Eurodollar
 }
 
-# Socrata API endpoint — Traders in Financial Futures (current year)
-CFTC_API_URL = "https://publicreporting.cftc.gov/resource/jun7-fc8e.json"
+# TFF (Traders in Financial Futures) Socrata endpoint
+CFTC_TFF_URL = "https://publicreporting.cftc.gov/resource/gpe5-46if.json"
 
-# Fields to pull from the API
+# Fields to pull — NOTE: column names differ from the legacy COT endpoint
 SELECT_FIELDS = [
-    "report_date_as_mm_dd_yyyy",
+    "report_date_as_yyyy_mm_dd",
     "cftc_contract_market_code",
-    "lev_money_positions_long_all",
-    "lev_money_positions_short_all",
-    "asset_mgr_positions_long_all",
-    "asset_mgr_positions_short_all",
+    "lev_money_positions_long",
+    "lev_money_positions_short",
+    "asset_mgr_positions_long",
+    "asset_mgr_positions_short",
 ]
 
 
 class CFTCFetcher(BaseFetcher):
-    """Fetch weekly CFTC Commitment of Traders positioning data."""
+    """Fetch weekly CFTC TFF Leveraged Funds + Asset Manager positioning data."""
 
     def __init__(self, start_date: str, end_date: str, use_cache: bool = True):
         super().__init__(start_date, end_date, use_cache)
@@ -73,52 +76,52 @@ class CFTCFetcher(BaseFetcher):
     # ------------------------------------------------------------------
 
     def _build_query_params(self) -> Dict[str, str]:
-        """Build Socrata query parameters."""
+        """Build Socrata SoQL query parameters for the TFF endpoint."""
         code_list = ", ".join(
             f"'{code}'" for code in CONTRACT_CODES.values()
         )
         start_str = self.start.strftime("%Y-%m-%dT00:00:00.000")
 
         where_clause = (
-            f"report_date_as_mm_dd_yyyy >= '{start_str}' "
+            f"report_date_as_yyyy_mm_dd >= '{start_str}' "
             f"AND cftc_contract_market_code in({code_list})"
         )
 
         params = {
-            "$where": where_clause,
+            "$where":  where_clause,
             "$select": ", ".join(SELECT_FIELDS),
-            "$limit": "50000",
-            "$order": "report_date_as_mm_dd_yyyy ASC",
+            "$limit":  "50000",
+            "$order":  "report_date_as_yyyy_mm_dd ASC",
         }
         return params
 
     def _fetch_cot_data(self) -> pd.DataFrame:
-        """Hit the Socrata API and reshape into the target column layout."""
+        """Hit the TFF Socrata API and reshape into wide-format columns."""
         params = self._build_query_params()
 
         try:
-            logger.info("CFTC: fetching COT data from Socrata API")
-            resp = self.session.get(CFTC_API_URL, params=params, timeout=30)
+            logger.info("CFTC: fetching TFF data from Socrata API")
+            resp = self.session.get(CFTC_TFF_URL, params=params, timeout=30)
             resp.raise_for_status()
             records = resp.json()
         except Exception as e:
-            logger.warning(f"CFTC API request failed: {e}")
+            logger.warning(f"CFTC TFF API request failed: {e}")
             return pd.DataFrame()
 
         self._sleep(0.5)
 
         if not records:
-            logger.warning("CFTC: API returned no records")
+            logger.warning("CFTC TFF: API returned no records")
             return pd.DataFrame()
 
         raw = pd.DataFrame(records)
         return self._reshape(raw)
 
     def _reshape(self, raw: pd.DataFrame) -> pd.DataFrame:
-        """Convert raw Socrata rows into wide-format net positioning columns."""
-        # Parse the date column
+        """Convert raw TFF rows into wide-format net positioning columns."""
+        # Parse the date column (TFF uses yyyy_mm_dd format)
         raw["date"] = pd.to_datetime(
-            raw["report_date_as_mm_dd_yyyy"], errors="coerce"
+            raw["report_date_as_yyyy_mm_dd"], errors="coerce"
         )
         raw = raw.dropna(subset=["date"])
 
@@ -127,12 +130,12 @@ class CFTCFetcher(BaseFetcher):
         if raw.empty:
             return pd.DataFrame()
 
-        # Cast position fields to numeric
+        # Cast position fields to numeric (TFF column names lack the _all suffix)
         pos_cols = [
-            "lev_money_positions_long_all",
-            "lev_money_positions_short_all",
-            "asset_mgr_positions_long_all",
-            "asset_mgr_positions_short_all",
+            "lev_money_positions_long",
+            "lev_money_positions_short",
+            "asset_mgr_positions_long",
+            "asset_mgr_positions_short",
         ]
         for col in pos_cols:
             if col in raw.columns:
@@ -142,7 +145,7 @@ class CFTCFetcher(BaseFetcher):
         code_to_label = {code: label for label, code in CONTRACT_CODES.items()}
 
         # Compute net positions per contract per date
-        frames = []  # type: List[pd.DataFrame]
+        frames: List[pd.DataFrame] = []
         for code, label in code_to_label.items():
             subset = raw[raw["cftc_contract_market_code"] == code].copy()
             if subset.empty:
@@ -153,13 +156,13 @@ class CFTCFetcher(BaseFetcher):
 
             # Leveraged money net = long - short
             piece[f"COT_{label}_NET_LEV"] = (
-                subset["lev_money_positions_long_all"]
-                - subset["lev_money_positions_short_all"]
+                subset["lev_money_positions_long"]
+                - subset["lev_money_positions_short"]
             )
             # Asset manager net = long - short
             piece[f"COT_{label}_NET_AM"] = (
-                subset["asset_mgr_positions_long_all"]
-                - subset["asset_mgr_positions_short_all"]
+                subset["asset_mgr_positions_long"]
+                - subset["asset_mgr_positions_short"]
             )
 
             frames.append(piece)

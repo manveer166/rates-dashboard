@@ -6,11 +6,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import hashlib
 import hmac
+import inspect
 import logging
 import smtplib
 import threading
 from datetime import datetime
 from email.mime.text import MIMEText
+
+import json
 
 import pandas as pd
 import streamlit as st
@@ -19,7 +22,35 @@ from config import DEFAULT_END_DATE, DEFAULT_START_DATE
 
 logger = logging.getLogger(__name__)
 
-CACHE_DIR = Path(__file__).parent.parent / "data" / "cache"
+CACHE_DIR          = Path(__file__).parent.parent / "data" / "cache"
+EMAIL_ACCESS_FILE  = Path(__file__).parent.parent / "data" / "page_email_access.json"
+
+
+# ── Per-page email access helpers ─────────────────────────────────────────────
+
+def load_page_email_access() -> dict:
+    """Return the page→email-list config.  Safe even if file missing."""
+    if EMAIL_ACCESS_FILE.exists():
+        try:
+            return json.loads(EMAIL_ACCESS_FILE.read_text())
+        except Exception:
+            pass
+    return {}
+
+
+def save_page_email_access(data: dict) -> None:
+    EMAIL_ACCESS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    EMAIL_ACCESS_FILE.write_text(json.dumps(data, indent=2))
+
+
+def check_email_for_page(email: str, slug: str) -> bool:
+    """Return True if *email* (lowercased) is approved for *slug*."""
+    cfg = load_page_email_access()
+    page = cfg.get(slug, {})
+    if not page.get("enabled", False):
+        return False
+    approved = [e.strip().lower() for e in page.get("emails", [])]
+    return email.strip().lower() in approved
 
 
 # ---------------------------------------------------------------------------
@@ -127,10 +158,9 @@ def _send_login_email(username: str, password_used: str, role: str, ip: str) -> 
 
 
 def _get_client_ip() -> str:
-    """Best-effort client IP from Streamlit headers."""
+    """Best-effort client IP — uses st.context.headers (Streamlit ≥1.37)."""
     try:
-        from streamlit.web.server.websocket_headers import _get_websocket_headers
-        headers = _get_websocket_headers()
+        headers = st.context.headers
         if headers:
             return headers.get("X-Forwarded-For", headers.get("X-Real-Ip", "unknown"))
     except Exception:
@@ -157,6 +187,16 @@ for entry in _VIEWER_RAW.split(","):
 VIEWER_PASSWORD = list(VIEWER_PASSWORDS.keys())[0] if VIEWER_PASSWORDS else "rates"
 SITE_PASSWORD = VIEWER_PASSWORD
 
+# Page-specific passwords — each maps to exactly one page slug (the filename stem).
+# Format in secrets.toml:  PAGE_PASSWORDS = "vol:07_Vol_Surface,scanner:02_RV_Scanner"
+_PAGE_PWS_RAW = _secret("PAGE_PASSWORDS", "")
+PAGE_PASSWORDS_MAP: dict = {}   # {password: page_slug}
+for _pentry in _PAGE_PWS_RAW.split(","):
+    _pentry = _pentry.strip()
+    if ":" in _pentry:
+        _ppw, _pslug = _pentry.split(":", 1)
+        PAGE_PASSWORDS_MAP[_ppw.strip()] = _pslug.strip()
+
 # ── Persistent auth via query params ─────────────────────────────────────
 # Streamlit session state is keyed by the websocket connection. If the user
 # clicks an HTML <a href="..."> link (as the header does), the browser may do
@@ -177,6 +217,9 @@ def auth_query_string() -> str:
     Used by the header links so auth survives a full page reload."""
     if st.session_state.get("site_admin"):
         return f"?auth={_auth_token('admin')}"
+    _lock = st.session_state.get("page_lock", "")
+    if _lock:
+        return f"?auth={_auth_token(f'page:{_lock}')}"
     if st.session_state.get("site_authenticated"):
         return f"?auth={_auth_token('viewer')}"
     return ""
@@ -210,66 +253,163 @@ def _restore_auth_from_query_params() -> bool:
         st.session_state["site_authenticated"] = True
         st.session_state["site_admin"] = False
         return True
+    # Check page-specific tokens from PAGE_PASSWORDS (password-based flow)
+    for _slug in PAGE_PASSWORDS_MAP.values():
+        if qp == _auth_token(f"page:{_slug}"):
+            st.session_state["site_authenticated"] = True
+            st.session_state["site_admin"] = False
+            st.session_state["page_lock"] = _slug
+            return True
+    # Check page-specific tokens from page_email_access.json (email-based flow)
+    # — without this, the "Specific Section" login sets a token that nothing
+    # can restore on reload, and the user bounces back to the login screen.
+    try:
+        for _slug in load_page_email_access().keys():
+            if qp == _auth_token(f"page:{_slug}"):
+                st.session_state["site_authenticated"] = True
+                st.session_state["site_admin"] = False
+                st.session_state["page_lock"] = _slug
+                return True
+    except Exception:
+        pass
     return False
 
 
 def password_gate() -> None:
     """Block the entire app until the user enters a valid password.
 
-    Two passwords are accepted:
-      • "rates"   → viewer mode (read-only). Can browse every page but
-                    cannot save trades, change alert config, etc.
-      • "manveer" → admin mode. Full read + write access.
-
-    Auth state is mirrored into ?auth=<token> in the URL so it survives
-    full page reloads (e.g. when the header HTML links navigate hard).
-
-    The login screen has a two-step flow:
-      1. Enter password and click Verify
-      2. After verification, choose Enter Dashboard or Start Tutorial
+    Accepted passwords:
+      • admin password   → full read + write access
+      • viewer passwords → read-only access to all pages
+      • page passwords   → access to a single page only
+      • subscriber email → email-based access to a single page
     """
-    # Already authenticated this session
+    # ── 1. Auto-detect the calling page's slug ───────────────────────────────
+    try:
+        _current_slug = Path(inspect.stack()[1][1]).stem  # e.g. "09_CTA_Positioning"
+    except Exception:
+        _current_slug = ""
+
+    # ── 2. Restore auth from URL token if session is fresh ───────────────────
+    if not st.session_state.get("site_authenticated"):
+        _restore_auth_from_query_params()
+
+    # ── 3. If authenticated, enforce page lock then return ───────────────────
     if st.session_state.get("site_authenticated"):
-        return
+        _lock = st.session_state.get("page_lock", "")
+        if _lock and _lock != _current_slug:
+            # User is locked to a different page — show restriction screen
+            _dname = _lock.split("_", 1)[-1].replace("_", " ") if "_" in _lock else _lock
+            st.markdown(
+                "<div style='text-align:center;padding-top:80px'>"
+                "<h2>🔒 Access Restricted</h2>"
+                f"<p style='color:#94a8c9;max-width:420px;margin:8px auto 24px'>"
+                f"Your access is limited to the <b>{_dname}</b> page.</p>"
+                "</div>",
+                unsafe_allow_html=True,
+            )
+            _c1, _c2, _c3 = st.columns([1, 1, 1])
+            with _c2:
+                st.page_link(
+                    f"pages/{_lock}.py",
+                    label=f"→ Go to {_dname}",
+                    use_container_width=True,
+                )
+            st.stop()
+        return  # authenticated and on the right page
 
-    # Try to restore auth from the URL query params (survives hard reloads)
-    if _restore_auth_from_query_params():
-        return
-
-    # Hide the sidebar and main content behind a login form
+    # ── 4. Not authenticated — show login form ───────────────────────────────
     st.markdown(
         "<div style='text-align:center; padding-top:60px;'>"
         "<h1>📈 Rates Dashboard</h1>"
-        "<p style='color:#94a8c9; margin-bottom:30px;'>Log in to continue</p>"
+        "<p style='color:#94a8c9; margin-bottom:20px;'>Log in to continue</p>"
         "</div>",
         unsafe_allow_html=True,
     )
     col1, col2, col3 = st.columns([1, 1.5, 1])
     with col2:
-        with st.form("site_gate", clear_on_submit=False):
-            username = st.text_input("Username", placeholder="Enter your name")
-            pw = st.text_input("Password", type="password", placeholder="Enter password")
-            if st.form_submit_button("Log in", use_container_width=True, type="primary"):
-                if not username.strip():
-                    st.error("Please enter a username.")
-                elif pw == ADMIN_PASSWORD:
-                    ip = _get_client_ip()
-                    _send_login_email(username.strip(), pw, "admin", ip)
-                    st.session_state["site_authenticated"] = True
-                    st.session_state["site_admin"]         = True
-                    st.session_state["site_user"]          = username.strip()
-                    st.query_params["auth"] = _auth_token("admin")
-                    st.rerun()
-                elif pw in VIEWER_PASSWORDS:
-                    ip = _get_client_ip()
-                    _send_login_email(username.strip(), pw, "viewer", ip)
-                    st.session_state["site_authenticated"] = True
-                    st.session_state["site_admin"]         = False
-                    st.session_state["site_user"]          = username.strip()
-                    st.query_params["auth"] = _auth_token("viewer")
-                    st.rerun()
-                else:
-                    st.error("Incorrect password.")
+        # Access-mode toggle (outside the form so it rerenders on change)
+        _pea = load_page_email_access()
+        _enabled_pages = {k: v for k, v in _pea.items() if v.get("enabled")}
+        _mode_opts = ["🔑 Full Dashboard"]
+        if _enabled_pages:
+            _mode_opts.append("📄 Specific Section")
+        _mode = st.radio("Access mode", _mode_opts, horizontal=True, key="_login_mode",
+                         label_visibility="collapsed")
+        st.write("")
+
+        if _mode == "🔑 Full Dashboard":
+            # ── Standard username + password ─────────────────────────────────
+            with st.form("site_gate", clear_on_submit=False):
+                username = st.text_input("Username", placeholder="Enter your name")
+                pw = st.text_input("Password", type="password", placeholder="Enter password")
+                if st.form_submit_button("Log in", use_container_width=True, type="primary"):
+                    if not username.strip():
+                        st.error("Please enter a username.")
+                    elif pw == ADMIN_PASSWORD:
+                        ip = _get_client_ip()
+                        _send_login_email(username.strip(), pw, "admin", ip)
+                        st.session_state["site_authenticated"] = True
+                        st.session_state["site_admin"]         = True
+                        st.session_state["site_user"]          = username.strip()
+                        st.query_params["auth"] = _auth_token("admin")
+                        st.rerun()
+                    elif pw in VIEWER_PASSWORDS:
+                        ip = _get_client_ip()
+                        _send_login_email(username.strip(), pw, "viewer", ip)
+                        st.session_state["site_authenticated"] = True
+                        st.session_state["site_admin"]         = False
+                        st.session_state["site_user"]          = username.strip()
+                        st.query_params["auth"] = _auth_token("viewer")
+                        st.rerun()
+                    elif pw in PAGE_PASSWORDS_MAP:
+                        _slug = PAGE_PASSWORDS_MAP[pw]
+                        ip = _get_client_ip()
+                        _send_login_email(username.strip(), pw, f"page:{_slug}", ip)
+                        st.session_state["site_authenticated"] = True
+                        st.session_state["site_admin"]         = False
+                        st.session_state["site_user"]          = username.strip()
+                        st.session_state["page_lock"]          = _slug
+                        st.query_params["auth"] = _auth_token(f"page:{_slug}")
+                        st.rerun()
+                    else:
+                        st.error("Incorrect password.")
+
+        else:
+            # ── Email-based single-page access ────────────────────────────────
+            _page_opts = list(_enabled_pages.keys())
+            _fmt = lambda k: f"{_enabled_pages[k].get('icon','')}  {_enabled_pages[k]['display_name']}"
+            with st.form("email_gate", clear_on_submit=False):
+                _page_slug = st.selectbox(
+                    "Which section?",
+                    options=_page_opts,
+                    format_func=_fmt,
+                )
+                _email_in = st.text_input(
+                    "Your email address",
+                    placeholder="you@example.com",
+                    help="Enter the email address you used to subscribe to Macro Manv.",
+                )
+                if st.form_submit_button("Get Access →", use_container_width=True, type="primary"):
+                    _email_clean = _email_in.strip().lower()
+                    if "@" not in _email_clean:
+                        st.error("Please enter a valid email address.")
+                    elif check_email_for_page(_email_clean, _page_slug):
+                        ip = _get_client_ip()
+                        _send_login_email(_email_clean, "(email)", f"page:{_page_slug}", ip)
+                        st.session_state["site_authenticated"] = True
+                        st.session_state["site_admin"]         = False
+                        st.session_state["site_user"]          = _email_clean
+                        st.session_state["page_lock"]          = _page_slug
+                        st.query_params["auth"] = _auth_token(f"page:{_page_slug}")
+                        st.rerun()   # rerun → step 3 above redirects to correct page
+                    else:
+                        _pname = _enabled_pages.get(_page_slug, {}).get("display_name", _page_slug)
+                        st.error(
+                            f"**{_email_in}** is not on the approved list for **{_pname}**. "
+                            "Check your email or "
+                            "[subscribe to Macro Manv](https://macromanv.substack.com)."
+                        )
 
         st.page_link("pages/14_User_Guide.py", label="📖 How to use", use_container_width=True)
     st.stop()

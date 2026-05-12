@@ -96,6 +96,18 @@ INTL_SERIES = {
 }
 
 # ---------------------------------------------------------------------------
+# FX series (FRED — daily noon buying rates / DXY)
+# ---------------------------------------------------------------------------
+FX_SERIES = {
+    "USD_EUR":  "DEXUSEU",     # USD per 1 EUR (i.e. EURUSD)
+    "JPY_USD":  "DEXJPUS",     # JPY per 1 USD (i.e. USDJPY)
+    "GBP_USD":  "DEXUSUK",     # USD per 1 GBP (i.e. GBPUSD)
+    "CHF_USD":  "DEXSZUS",     # CHF per 1 USD
+    "CAD_USD":  "DEXCAUS",     # CAD per 1 USD
+    "DXY":      "DTWEXBGS",    # Trade-weighted dollar (broad, goods+services)
+}
+
+# ---------------------------------------------------------------------------
 # Macro / inflation series
 # ---------------------------------------------------------------------------
 MACRO_SERIES = {

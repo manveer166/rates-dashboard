@@ -32,6 +32,7 @@ from reportlab.platypus import (
     BaseDocTemplate,
     Frame,
     HRFlowable,
+    Image,
     PageTemplate,
     Paragraph,
     Spacer,
@@ -39,6 +40,11 @@ from reportlab.platypus import (
     TableStyle,
 )
 from reportlab.platypus.flowables import KeepTogether
+from reportlab.lib.utils import ImageReader
+
+# ── Logo paths ────────────────────────────────────────────────────────────
+_LOGO_PATH        = Path(__file__).parent.parent / "assets" / "mm_logo.png"
+_LOGO_SIGNAL_PATH = Path(__file__).parent.parent / "assets" / "mm_logo_signal.png"
 
 # ── Brand palette ─────────────────────────────────────────────────────────
 C_BG        = colors.HexColor("#0a1628")
@@ -132,6 +138,65 @@ def _make_styles():
     }
 
 
+
+
+# ── Editorial annotation helpers ─────────────────────────────────────────────
+
+_CONTENT_W = 170 * mm     # usable content width inside page margins
+
+
+def _note_flowables(text: str) -> list:
+    """Accent-bordered italic note — prepended to a section.  Returns [] if empty."""
+    if not text or not text.strip():
+        return []
+    note_s = ParagraphStyle(
+        "_nf_style", fontName="Helvetica-Oblique", fontSize=9,
+        textColor=C_ACCENT, leading=13,
+    )
+    tbl = Table([[Paragraph(f"✏️ &nbsp;{text.strip()}", note_s)]], colWidths=[_CONTENT_W])
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND",    (0, 0), (0, 0), colors.HexColor("#0e1f3a")),
+        ("BOX",           (0, 0), (0, 0), 0.8, C_ACCENT),
+        ("LEFTPADDING",   (0, 0), (0, 0), 8),
+        ("RIGHTPADDING",  (0, 0), (0, 0), 8),
+        ("TOPPADDING",    (0, 0), (0, 0), 5),
+        ("BOTTOMPADDING", (0, 0), (0, 0), 5),
+    ]))
+    return [tbl, Spacer(1, 2 * mm)]
+
+
+def _comment_flowables(text: str) -> list:
+    """Green-bordered personal comment block — sits right below the cover header."""
+    if not text or not text.strip():
+        return []
+    label_s = ParagraphStyle(
+        "_cf_label", fontName="Helvetica-Bold", fontSize=7.5,
+        textColor=C_GREEN, leading=11,
+    )
+    body_s = ParagraphStyle(
+        "_cf_body", fontName="Helvetica", fontSize=10,
+        textColor=C_TEXT1, leading=15,
+    )
+    tbl = Table(
+        [
+            [Paragraph("✏️  Personal note from Macro Manv", label_s)],
+            [Paragraph(text.strip(), body_s)],
+        ],
+        colWidths=[_CONTENT_W],
+    )
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND",    (0, 0), (-1, -1), colors.HexColor("#061a0e")),
+        ("BOX",           (0, 0), (-1, -1), 1.2, C_GREEN),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 10),
+        ("TOPPADDING",    (0, 0), (0,  0),  7),
+        ("BOTTOMPADDING", (0, 0), (0,  0),  3),
+        ("TOPPADDING",    (0, 1), (0,  1),  3),
+        ("BOTTOMPADDING", (0, 1), (0,  1),  9),
+        ("LINEBELOW",     (0, 0), (-1, 0),  0.5, C_GREEN),
+    ]))
+    return [tbl, Spacer(1, 5 * mm)]
+
 # ── Page template ──────────────────────────────────────────────────────────
 
 class _MMDoc(BaseDocTemplate):
@@ -167,13 +232,26 @@ class _MMDoc(BaseDocTemplate):
         # Accent strip
         canvas.setFillColor(C_ACCENT)
         canvas.rect(0, PAGE_H - 18*mm, 3*mm, 18*mm, stroke=0, fill=1)
-        # Title
+        # Title text
         canvas.setFillColor(C_TEXT1)
         canvas.setFont("Helvetica-Bold", 11)
         canvas.drawString(8*mm, PAGE_H - 11*mm, self._title)
         canvas.setFillColor(C_TEXT2)
         canvas.setFont("Helvetica", 8)
         canvas.drawString(8*mm, PAGE_H - 16*mm, self._subtitle)
+        # Logo — top-right corner of header
+        if _LOGO_PATH.exists():
+            logo_h = 11 * mm          # slightly smaller to sit cleanly in 18mm bar
+            logo_w = logo_h * (504 / 409)   # preserve aspect (504×409 px)
+            logo_x = PAGE_W - 18*mm - logo_w
+            logo_y = PAGE_H - 18*mm + 3.5*mm   # vertically centred in bar
+            canvas.drawImage(
+                str(_LOGO_PATH),
+                logo_x, logo_y,
+                width=logo_w, height=logo_h,
+                preserveAspectRatio=True,
+                mask="auto",
+            )
         # Footer
         canvas.setFillColor(C_DIVIDER)
         canvas.rect(0, 12*mm, PAGE_W, 0.3*mm, stroke=0, fill=1)
@@ -323,8 +401,21 @@ def _curve_table(curve_dict: dict, hist: Optional[pd.DataFrame] = None) -> Table
 
 # ── Monday setup content ───────────────────────────────────────────────────
 
+def _emit_section(story: list, title: str, key: str, styles: dict,
+                  section_notes: Optional[dict] = None) -> None:
+    """Append a section heading, preceded by the admin's note (if any) for
+    this short key.  Keys match the ones used by the Alerts-page composer UI
+    so both the PDF and HTML paths read from the same dict."""
+    note = ((section_notes or {}).get(key) or "").strip()
+    if note:
+        story.extend(_note_flowables(note))
+    story.append(Paragraph(title, styles["section"]))
+    story.append(Spacer(1, 2*mm))
+
+
 def _monday_story(sdf: pd.DataFrame, hist_df: Optional[pd.DataFrame],
-                  cfg: dict, styles: dict, monday: date) -> list:
+                  cfg: dict, styles: dict, monday: date,
+                  section_notes: Optional[dict] = None) -> list:
     """Build the Monday 'setup' story elements."""
     from analysis.alert_body import (
         build_body, format_trade_plain, derive_tags, theme_summary,
@@ -336,6 +427,7 @@ def _monday_story(sdf: pd.DataFrame, hist_df: Optional[pd.DataFrame],
 
     # ── Intro ─────────────────────────────────────────────────────────────
     week_str = monday.strftime("%-d %B %Y")
+    story += _note_flowables(((section_notes or {}).get("intro") or "").strip())
     story += [
         Paragraph(f"Week of {week_str} — What to watch", S["section"]),
         Spacer(1, 2*mm),
@@ -348,8 +440,7 @@ def _monday_story(sdf: pd.DataFrame, hist_df: Optional[pd.DataFrame],
     ]
 
     # ── Curve snapshot ────────────────────────────────────────────────────
-    story.append(Paragraph("CURVE SNAPSHOT", S["section"]))
-    story.append(Spacer(1, 2*mm))
+    _emit_section(story, "CURVE SNAPSHOT", "curve_snapshot", S, section_notes)
     if hist_df is not None and not hist_df.empty:
         story.append(_curve_table({}, hist=hist_df))
     else:
@@ -367,8 +458,7 @@ def _monday_story(sdf: pd.DataFrame, hist_df: Optional[pd.DataFrame],
     best_z    = float(best["Z"])
 
     # ── Highest conviction ────────────────────────────────────────────────
-    story.append(Paragraph("HIGHEST CONVICTION RV SIGNAL", S["section"]))
-    story.append(Spacer(1, 1.5*mm))
+    _emit_section(story, "HIGHEST CONVICTION RV SIGNAL", "top_signal", S, section_notes)
     story.append(Paragraph(f"Receive {best_name}", ParagraphStyle(
         "best", fontName="Helvetica-Bold", fontSize=13, textColor=C_ACCENT,
     )))
@@ -400,8 +490,7 @@ def _monday_story(sdf: pd.DataFrame, hist_df: Optional[pd.DataFrame],
     similar = [format_trade_plain(r["Trade"], r["Type"]) for _, r in top.iloc[1:4].iterrows()]
     anchor  = "/".join(theme["common"][:2]) if theme["common"] else "the curve"
 
-    story.append(Paragraph("THEME BUILDING ACROSS THE CURVE", S["section"]))
-    story.append(Spacer(1, 1.5*mm))
+    _emit_section(story, "THEME BUILDING ACROSS THE CURVE", "theme", S, section_notes)
     if similar:
         story.append(Paragraph(
             f"Signals are clustering in <b>{anchor}</b>-led receiver structures, "
@@ -412,16 +501,14 @@ def _monday_story(sdf: pd.DataFrame, hist_df: Optional[pd.DataFrame],
     story.append(Spacer(1, 4*mm))
 
     # ── Top 15 scanner table ──────────────────────────────────────────────
-    story.append(Paragraph("TOP SIGNALS BY SHARPE", S["section"]))
-    story.append(Spacer(1, 2*mm))
+    _emit_section(story, "TOP SIGNALS BY SHARPE", "top_table", S, section_notes)
     story.append(_scanner_table(filt, top_n=15, sort_col="Sharpe"))
     story.append(Spacer(1, 4*mm))
 
     # ── Most stretched this week ──────────────────────────────────────────
     mov = filt.reindex(filt["D1W"].abs().sort_values(ascending=False).index)
     biggest = mov.iloc[0]
-    story.append(Paragraph("MOST STRETCHED — WATCH FOR REVERSAL", S["section"]))
-    story.append(Spacer(1, 1.5*mm))
+    _emit_section(story, "MOST STRETCHED — WATCH FOR REVERSAL", "movers", S, section_notes)
     big_name = format_trade_plain(biggest["Trade"], biggest["Type"])
     big_z = float(biggest["Z"])
     cheap_rich = "cheap" if big_z < -0.5 else ("rich" if big_z > 0.5 else "near fair value")
@@ -438,7 +525,8 @@ def _monday_story(sdf: pd.DataFrame, hist_df: Optional[pd.DataFrame],
 # ── Friday recap content ───────────────────────────────────────────────────
 
 def _friday_story(sdf: pd.DataFrame, hist_df: Optional[pd.DataFrame],
-                  cfg: dict, styles: dict, monday: date) -> list:
+                  cfg: dict, styles: dict, monday: date,
+                  section_notes: Optional[dict] = None) -> list:
     """Build the Friday 'what happened' story elements."""
     from analysis.alert_body import format_trade_plain, derive_tags
 
@@ -447,6 +535,7 @@ def _friday_story(sdf: pd.DataFrame, hist_df: Optional[pd.DataFrame],
 
     # ── Intro ─────────────────────────────────────────────────────────────
     week_str = monday.strftime("%-d %B %Y")
+    story += _note_flowables(((section_notes or {}).get("intro") or "").strip())
     story += [
         Paragraph(f"Week of {week_str} — What happened", S["section"]),
         Spacer(1, 2*mm),
@@ -459,8 +548,7 @@ def _friday_story(sdf: pd.DataFrame, hist_df: Optional[pd.DataFrame],
     ]
 
     # ── Curve moves ───────────────────────────────────────────────────────
-    story.append(Paragraph("THIS WEEK'S CURVE MOVES", S["section"]))
-    story.append(Spacer(1, 2*mm))
+    _emit_section(story, "THIS WEEK'S CURVE MOVES", "curve", S, section_notes)
     if hist_df is not None and not hist_df.empty:
         story.append(_curve_table({}, hist=hist_df))
     else:
@@ -474,15 +562,13 @@ def _friday_story(sdf: pd.DataFrame, hist_df: Optional[pd.DataFrame],
     filt = sdf[sdf["Type"].isin(cfg.get("trade_types", ["Outright","Curve","Fly"]))].dropna(subset=["Sharpe"])
 
     # ── Biggest weekly movers ─────────────────────────────────────────────
-    story.append(Paragraph("BIGGEST WEEKLY MOVERS", S["section"]))
-    story.append(Spacer(1, 2*mm))
+    _emit_section(story, "BIGGEST WEEKLY MOVERS", "movers_fri", S, section_notes)
     movers = filt.reindex(filt["D1W"].abs().sort_values(ascending=False).index).head(12)
     story.append(_scanner_table(movers, top_n=12, sort_col="D1W"))
     story.append(Spacer(1, 4*mm))
 
     # ── Signal scorecard: did the week's top signals pay? ─────────────────
-    story.append(Paragraph("SIGNAL SCORECARD — Did the top signals deliver?", S["section"]))
-    story.append(Spacer(1, 2*mm))
+    _emit_section(story, "SIGNAL SCORECARD — Did the top signals deliver?", "scorecard", S, section_notes)
     top15 = filt.nlargest(15, "Sharpe")
     heads = ["Trade", "Sharpe", "Z", "D1W bps", "Verdict"]
     cw    = [52*mm, 18*mm, 18*mm, 18*mm, 40*mm]
@@ -540,11 +626,57 @@ def _friday_story(sdf: pd.DataFrame, hist_df: Optional[pd.DataFrame],
     story.append(Spacer(1, 4*mm))
 
     # ── Fresh top signals for next week ───────────────────────────────────
-    story.append(Paragraph("INTO NEXT WEEK — Refreshed top signals", S["section"]))
-    story.append(Spacer(1, 2*mm))
+    _emit_section(story, "INTO NEXT WEEK — Refreshed top signals", "next_week", S, section_notes)
     story.append(_scanner_table(filt, top_n=10, sort_col="Sharpe"))
 
+    # ── Week in review headlines (auto-embedded) ─────────────────────────
+    headlines = _fetch_headlines(limit_per_source=3)
+    if headlines:
+        story.append(Spacer(1, 5*mm))
+        _emit_section(story, "WEEK IN REVIEW — Headlines", "headlines", S, section_notes)
+        item_s = ParagraphStyle("hl_item", fontName="Helvetica", fontSize=8.5,
+                                textColor=C_TEXT1, leading=12)
+        src_s  = ParagraphStyle("hl_src",  fontName="Helvetica-Bold", fontSize=8,
+                                textColor=C_ACCENT, leading=12)
+        for h in headlines[:18]:
+            story.append(Paragraph(
+                f'<font color="{C_ACCENT.hexval()}"><b>{h["source"]}</b></font> · '
+                f'<a href="{h["link"]}" color="{C_TEXT1.hexval()}">{h["title"]}</a>',
+                item_s,
+            ))
+            story.append(Spacer(1, 0.8*mm))
+
     return story
+
+
+def _fetch_headlines(limit_per_source: int = 3) -> list:
+    """Pull recent headlines for the WEEK IN REVIEW section.  Self-contained
+    (no streamlit dep) so the weekly_pdf builder works from cron too."""
+    try:
+        import feedparser
+    except ImportError:
+        return []
+    feeds = [
+        ("Macro Manv", "https://manveersahota.substack.com/feed"),
+        ("Bloomberg",  "https://feeds.bloomberg.com/markets/news.rss"),
+        ("FT",         "https://www.ft.com/markets?format=rss"),
+        ("Fed",        "https://www.federalreserve.gov/feeds/press_monetary.xml"),
+        ("ECB",        "https://www.ecb.europa.eu/rss/press.html"),
+        ("BoE",        "https://www.bankofengland.co.uk/rss/news"),
+    ]
+    out: list = []
+    for src, url in feeds:
+        try:
+            f = feedparser.parse(url)
+        except Exception:
+            continue
+        for e in f.entries[:limit_per_source]:
+            out.append({
+                "source": src,
+                "title":  str(e.get("title", "")).strip()[:140],
+                "link":   str(e.get("link", "#")),
+            })
+    return out
 
 
 # ── Main entry point ──────────────────────────────────────────────────────
@@ -555,17 +687,21 @@ def build_weekly_pdf(
     cfg: dict,
     out_dir: Optional[Path] = None,
     force_day: Optional[str] = None,   # "monday" | "friday" for testing
+    personal_comment: str = "",
+    section_notes: Optional[dict] = None,
 ) -> Path:
     """
     Build the PDF and return its path.
 
     Parameters
     ----------
-    scanner_df  : scanner output DataFrame
-    hist_df     : master DataFrame with tenor columns (for curve table)
-    cfg         : alert config dict
-    out_dir     : where to write the PDF (default: briefs/<date>/)
-    force_day   : override weekday detection ("monday" or "friday")
+    scanner_df       : scanner output DataFrame
+    hist_df          : master DataFrame with tenor columns (for curve table)
+    cfg              : alert config dict
+    out_dir          : where to write the PDF (default: briefs/<date>/)
+    force_day        : override weekday detection ("monday" or "friday")
+    personal_comment : admin's free-text note rendered at the top of the PDF
+    section_notes    : {section_title: note_text} rendered above each section
     """
     today   = date.today()
     monday  = _monday_of_week(today)
@@ -586,23 +722,97 @@ def build_weekly_pdf(
 
     # Cover header (inside content area — the page template draws the top bar)
     story = [
-        Paragraph(f"Rates Weekly — Macro Manv", ParagraphStyle(
+        Paragraph("Rates Weekly — Macro Manv", ParagraphStyle(
             "cover_title", fontName="Helvetica-Bold", fontSize=26,
-            textColor=C_TEXT1, spaceAfter=3,
+            textColor=C_TEXT1, leading=34, spaceAfter=4,
         )),
         Paragraph(
-            f"{'RECAP · What happened this week' if is_fri else 'SETUP · What to watch this week'}  "
-            f"·  Week of {mon_str}",
-            ParagraphStyle("cover_sub", fontName="Helvetica", fontSize=13, textColor=C_ACCENT),
+            f"{'RECAP · What happened this week' if is_fri else 'SETUP · What to watch this week'}"
+            f"  ·  Week of {mon_str}",
+            ParagraphStyle("cover_sub", fontName="Helvetica", fontSize=13,
+                           textColor=C_ACCENT, leading=18, spaceAfter=2),
         ),
         HRFlowable(width="100%", thickness=0.5, color=C_DIVIDER, spaceAfter=6),
         Spacer(1, 4*mm),
     ]
 
+    # Admin's personal comment, if any, sits right below the cover header.
+    story.extend(_comment_flowables(personal_comment))
+
     if is_fri:
-        story += _friday_story(scanner_df, hist_df, cfg, styles, monday)
+        story += _friday_story(scanner_df, hist_df, cfg, styles, monday, section_notes)
     else:
-        story += _monday_story(scanner_df, hist_df, cfg, styles, monday)
+        story += _monday_story(scanner_df, hist_df, cfg, styles, monday, section_notes)
+
+    # ── Closing page — centred signal logo + tagline ───────────────────────
+    story += _closing_page_flowables()
 
     doc.build(story)
     return out_path
+
+
+def _closing_page_flowables() -> list:
+    """
+    Returns flowables for the branded closing page:
+    large centred mm_logo_signal.png + disclaimer line.
+    Falls back gracefully if the file is missing.
+    """
+    PAGE_W, _ = A4
+    content_w = PAGE_W - 36 * mm   # matches left+right margins
+
+    flowables: list = [
+        # Push to a new page
+        Spacer(1, 6 * mm),
+        HRFlowable(width="100%", thickness=0.4, color=C_DIVIDER, spaceAfter=0),
+    ]
+
+    if _LOGO_SIGNAL_PATH.exists():
+        logo_size = 72 * mm   # ~72mm square — large but not full-page
+        img = Image(
+            str(_LOGO_SIGNAL_PATH),
+            width=logo_size,
+            height=logo_size,
+            kind="proportional",
+        )
+        # Centre by wrapping in a 1-cell Table
+        logo_tbl = Table(
+            [[img]],
+            colWidths=[content_w],
+            rowHeights=[logo_size + 4 * mm],
+            style=TableStyle([
+                ("ALIGN",       (0, 0), (-1, -1), "CENTER"),
+                ("VALIGN",      (0, 0), (-1, -1), "MIDDLE"),
+                ("BACKGROUND",  (0, 0), (-1, -1), C_BG),
+                ("BOX",         (0, 0), (-1, -1), 0, C_BG),
+            ]),
+        )
+        flowables.append(Spacer(1, 18 * mm))
+        flowables.append(logo_tbl)
+        flowables.append(Spacer(1, 8 * mm))
+
+    flowables.append(
+        Paragraph(
+            "Macro Manv · Charts, Trades and Signal · macromanv.substack.com",
+            ParagraphStyle(
+                "closing_cap",
+                fontName="Helvetica",
+                fontSize=9,
+                textColor=C_TEXT2,
+                alignment=TA_CENTER,
+                spaceAfter=4,
+            ),
+        )
+    )
+    flowables.append(
+        Paragraph(
+            "Model estimates only · Not investment advice · Data sourced from public APIs",
+            ParagraphStyle(
+                "closing_disc",
+                fontName="Helvetica",
+                fontSize=8,
+                textColor=C_TEXT3,
+                alignment=TA_CENTER,
+            ),
+        )
+    )
+    return flowables

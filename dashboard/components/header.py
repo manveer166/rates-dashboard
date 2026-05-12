@@ -9,24 +9,68 @@ import streamlit as st
 
 
 # Section links shown on every page header. (Label, URL, emoji)
-# URLs match Streamlit's auto-generated routes from the filenames in
-# dashboard/pages — Streamlit strips the numeric prefix and replaces
-# underscores with spaces but keeps the underscore in the URL.
-SECTIONS = [
-    ("Home",          "/",               "🏠"),
-    ("Yield Curve",   "/Yield_Curve",    "📉"),
-    ("Spreads",       "/Spreads",        "📊"),
-    ("Regression",    "/Regression",     "📐"),
-    ("PCA",           "/PCA",            "🧮"),
-    ("Correlation",   "/Correlation",    "🔗"),
-    ("Analysis",      "/Analysis",       "🔍"),
-    ("Vol Surface",   "/Vol_Surface",    "🌊"),
-    ("Trade Tracker", "/Trade_Tracker",  "📒"),
-    ("CTA Positioning", "/CTA_Positioning", "📊"),
-    ("Alerts",        "/Alerts",         "🔔"),
-    ("Sources",       "/Data_Sources",   "📡"),
-    ("Glossary",      "/Glossary",       "📖"),
-    ("Guide",         "/User_Guide",     "📘"),
+# Grouped navigation. Top-level shows 7 pills + Home; each pill opens a
+# dropdown panel listing the pages in that category. Single source of
+# truth — to add a page, drop it into the right category and you're done.
+CATEGORIES: list[tuple[str, str, list[tuple[str, str, str]]]] = [
+    ("Markets", "📈", [
+        ("Yield Curve",     "/Yield_Curve",         "📉"),
+        ("Global Curves",   "/Global_Curves",       "🌍"),
+        ("Spreads",         "/Spreads",             "📊"),
+        ("FX Overlay",      "/FX_Overlay",          "💱"),
+        ("Real Rates",      "/Real_Rates",          "📉"),
+        ("Cross-Asset",     "/Cross_Asset",         "🌐"),
+        ("Vol Scorecard",   "/Vol_Scorecard",       "🌊"),
+        ("Global Inflation","/Global_Inflation",    "🔥"),
+        ("Global Macro",    "/Global_Macro",        "🌐"),
+    ]),
+    ("Analytics", "🔬", [
+        ("Analysis",            "/Analysis",            "🔍"),
+        ("Regression",          "/Regression",          "📐"),
+        ("PCA",                 "/PCA",                 "🧮"),
+        ("Correlation",         "/Correlation",         "🔗"),
+        ("Vol Surface",         "/Vol_Surface",         "🌊"),
+        ("Regime",              "/Regime",              "🧭"),
+        ("Trade Decomposition", "/Trade_Decomposition", "🧩"),
+    ]),
+    ("Trade", "🎯", [
+        ("Trade Builder",     "/Trade_Builder",       "🧰"),
+        ("Backtester",        "/Backtester",          "🧪"),
+        ("Trade Tracker",     "/Trade_Tracker",       "📒"),
+        ("Trade of the Week", "/Trade_of_the_Week",   "🎯"),
+        ("Performance",       "/Performance",         "🏆"),
+        ("Journal",           "/Trade_Journal",       "📓"),
+    ]),
+    ("Events", "📅", [
+        ("Auctions",        "/Auction_Tracker",     "🏛️"),
+        ("Rates Calendar",  "/Rates_Calendar",      "📅"),
+        ("CTA Positioning", "/CTA_Positioning",     "📊"),
+    ]),
+    ("Publish", "📨", [
+        ("Alerts",         "/Alerts",            "🔔"),
+        ("AI Drafter",     "/AI_Post_Drafter",   "✍️"),
+        ("Social Cards",   "/Social_Cards",      "🖼️"),
+    ]),
+    ("Admin", "⚙️", [
+        ("A/B Tests",          "/AB_Tests",          "🧪"),
+        ("CTA Audit",          "/CTA_Audit",         "🔗"),
+        ("Subscriber Growth",  "/Subscriber_Growth", "📈"),
+        ("Reader Polls",       "/Reader_Polls",      "🗳️"),
+        ("Admin",              "/Admin",             "🛠️"),
+        ("Feature Request",    "/Feature_Request",   "💡"),
+    ]),
+    ("Help", "📚", [
+        ("Data Sources", "/Data_Sources", "📡"),
+        ("Glossary",     "/Glossary",     "📖"),
+        ("User Guide",   "/User_Guide",   "📘"),
+    ]),
+]
+
+# Backwards-compatible flat list (for code that does `current in SECTIONS`)
+SECTIONS = [("Home", "/", "🏠")] + [
+    (label, url, emoji)
+    for _cat_label, _cat_emoji, pages in CATEGORIES
+    for label, url, emoji in pages
 ]
 
 
@@ -340,33 +384,236 @@ def _inject_header_css() -> None:
     )
 
 
+def _inject_mobile_css() -> None:
+    """Responsive tweaks for narrow viewports (phones, narrow embeds).
+
+    Streamlit's defaults are loosely responsive but tend to render the
+    multi-column layouts and chart cards too cramped on phones.  This pass:
+      • collapses the navigation strip into a wrap-able row
+      • shrinks page paddings + heading sizes <768px
+      • forces st.columns to stack <600px (Streamlit's [data-testid='stColumn']
+        sets each column to flex:1 — we override to flex:1 1 100%)
+      • reduces metric/dataframe paddings on phones
+    """
+    st.markdown(
+        """
+        <style>
+        /* === Tablet & smaller (<= 1024px) ===================================== */
+        @media (max-width: 1024px) {
+            section.main .block-container { padding: 1rem 1rem 4rem !important; }
+            .mm-header { gap: 6px !important; padding: 6px 8px !important; }
+            .mm-link { padding: 4px 8px !important; font-size: 11.5px !important; }
+        }
+
+        /* === Mobile (<= 768px) =============================================== */
+        @media (max-width: 768px) {
+            section.main .block-container { padding: 0.75rem 0.75rem 4rem !important; }
+            h1 { font-size: 1.5rem !important; }
+            h2 { font-size: 1.2rem !important; }
+            h3 { font-size: 1.05rem !important; }
+            .mm-header {
+                flex-wrap: wrap !important;
+                row-gap: 4px !important;
+                padding: 6px !important;
+            }
+            .mm-home, .mm-link { font-size: 11px !important; padding: 4px 7px !important; }
+            .mm-divider { display: none !important; }
+
+            /* Stack columns instead of squeezing them */
+            div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] {
+                flex: 1 1 100% !important;
+                min-width: 100% !important;
+            }
+
+            /* Tighter metric padding */
+            div[data-testid="stMetric"] { padding: 4px 6px !important; }
+            div[data-testid="stMetricValue"] { font-size: 1.3rem !important; }
+
+            /* Sidebar: keep collapsed by default on mobile */
+            section[data-testid="stSidebar"] { width: 220px !important; }
+
+            /* Plotly: shrink margins so charts use the narrow width */
+            .js-plotly-plot .plotly { font-size: 10px !important; }
+        }
+
+        /* === Narrow phones (<= 480px) ======================================== */
+        @media (max-width: 480px) {
+            section.main .block-container { padding: 0.5rem 0.5rem 3rem !important; }
+            h1 { font-size: 1.25rem !important; }
+            .mm-link, .mm-home { font-size: 10.5px !important; }
+            /* Hide emoji-only labels to save horizontal space */
+            div[data-testid="stDataFrame"] { font-size: 11px !important; }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _inject_grouped_nav_css() -> None:
+    """CSS for the category-grouped dropdown nav."""
+    st.markdown(
+        """
+        <style>
+        /* Hide Streamlit's auto-generated sidebar page nav — we use our own. */
+        section[data-testid="stSidebar"] div[data-testid="stSidebarNav"],
+        section[data-testid="stSidebar"] ul[data-testid="stSidebarNavItems"] {
+            display: none !important;
+        }
+
+        .mm-nav {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            padding: 8px 12px;
+            margin: 0 0 14px;
+            background: #0e1f3a;
+            border-radius: 8px;
+            position: relative;
+            z-index: 1000;
+        }
+        .mm-nav .mm-home {
+            color: #ffffff !important;
+            background: #4fc3f7;
+            font-weight: 700;
+            font-size: 12.5px;
+            padding: 7px 14px;
+            border-radius: 5px;
+            text-decoration: none;
+            transition: background 0.15s ease;
+        }
+        .mm-nav .mm-home:hover { background: #22d3ee; }
+
+        /* Category pill (the <summary>) */
+        .mm-cat { position: relative; }
+        .mm-cat > summary {
+            list-style: none;
+            cursor: pointer;
+            color: #cbd5e1 !important;
+            font-size: 12.5px;
+            font-weight: 500;
+            padding: 7px 12px;
+            border-radius: 5px;
+            line-height: 1;
+            transition: all 0.15s ease;
+            user-select: none;
+        }
+        .mm-cat > summary::-webkit-details-marker { display: none; }
+        .mm-cat > summary::marker { content: ""; }
+        .mm-cat > summary:hover {
+            color: #e8eef9 !important;
+            background: #1a3056;
+        }
+        .mm-cat[open] > summary {
+            color: #ffffff !important;
+            background: #233e6e;
+        }
+        .mm-cat.mm-cat-active > summary {
+            color: #ffffff !important;
+            background: #1a3056;
+            border-bottom: 2px solid #4fc3f7;
+            border-bottom-left-radius: 0;
+            border-bottom-right-radius: 0;
+        }
+
+        /* The dropdown panel */
+        .mm-cat .mm-panel {
+            position: absolute;
+            top: calc(100% + 4px);
+            left: 0;
+            min-width: 220px;
+            background: #122340;
+            border: 1px solid #233e6e;
+            border-radius: 8px;
+            padding: 6px;
+            box-shadow: 0 10px 24px rgba(0,0,0,0.4);
+            z-index: 1001;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .mm-cat .mm-panel a {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #cbd5e1 !important;
+            font-size: 12.5px;
+            padding: 7px 10px;
+            border-radius: 4px;
+            text-decoration: none;
+            transition: all 0.12s ease;
+            white-space: nowrap;
+        }
+        .mm-cat .mm-panel a:hover {
+            background: #1a3056;
+            color: #ffffff !important;
+        }
+        .mm-cat .mm-panel a.mm-current {
+            background: #233e6e;
+            color: #ffffff !important;
+            font-weight: 600;
+        }
+
+        /* Hover-to-open in addition to click — feels more responsive */
+        @media (hover: hover) {
+            .mm-cat:hover > .mm-panel { display: flex; }
+            .mm-cat:not([open]):not(:hover) > .mm-panel { display: none; }
+        }
+
+        /* Tablet & smaller */
+        @media (max-width: 1024px) {
+            .mm-nav { gap: 3px; padding: 6px 8px; }
+            .mm-cat > summary, .mm-nav .mm-home { font-size: 11.5px; padding: 5px 9px; }
+        }
+        @media (max-width: 600px) {
+            .mm-nav { flex-wrap: wrap; row-gap: 4px; }
+            .mm-cat .mm-panel { left: 0; right: auto; min-width: 200px; }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _category_for(label: str) -> str | None:
+    """Which category does `label` belong to? None if not found."""
+    for cat_name, _emoji, pages in CATEGORIES:
+        if any(p[0] == label for p in pages):
+            return cat_name
+    return None
+
+
 def render_page_header(current: str = "Home") -> None:
-    """Render the navigation header.
+    """Render the grouped category navigation header.
 
     Args:
-        current: name of the current page (must match a label in SECTIONS).
+        current: name of the current page (must match a label in any category).
     """
     _inject_global_css()
     _inject_header_css()
+    _inject_mobile_css()
+    _inject_grouped_nav_css()
 
-    # Append ?auth=<token> to every link so that if the browser does a full
-    # page reload (instead of an in-app Streamlit navigation), the new page
-    # can restore auth from the query params instead of bouncing the user
-    # back to the login screen.
     from dashboard.state import auth_query_string
     qs = auth_query_string()
+    active_cat = _category_for(current)
 
-    parts = ['<div class="mm-header">']
+    parts = ['<nav class="mm-nav">']
     parts.append(f'<a class="mm-home" href="/{qs}" target="_self">🏠 Home</a>')
-    parts.append('<div class="mm-divider"></div>')
 
-    for label, url, emoji in SECTIONS:
-        if label == "Home":
-            continue  # already rendered as the prominent button
-        cls = "mm-link mm-current" if label == current else "mm-link"
-        parts.append(
-            f'<a class="{cls}" href="{url}{qs}" target="_self">{emoji} {label}</a>'
-        )
+    for cat_name, cat_emoji, pages in CATEGORIES:
+        cat_cls = "mm-cat mm-cat-active" if cat_name == active_cat else "mm-cat"
+        parts.append(f'<details class="{cat_cls}">')
+        parts.append(f'  <summary>{cat_emoji} {cat_name} ▾</summary>')
+        parts.append('  <div class="mm-panel">')
+        for label, url, emoji in pages:
+            link_cls = "mm-current" if label == current else ""
+            parts.append(
+                f'    <a class="{link_cls}" href="{url}{qs}" target="_self">'
+                f'{emoji} {label}</a>'
+            )
+        parts.append('  </div>')
+        parts.append('</details>')
 
-    parts.append("</div>")
-    st.markdown("".join(parts), unsafe_allow_html=True)
+    parts.append("</nav>")
+    st.markdown("\n".join(parts), unsafe_allow_html=True)

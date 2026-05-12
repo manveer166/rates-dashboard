@@ -95,6 +95,10 @@ def render_sidebar_controls() -> None:
             pass
         st.rerun()
 
+    # ── Page search ───────────────────────────────────────────────────────
+    from dashboard.components.search import render_search_box
+    render_search_box()
+
     # ── Info ─────────────────────────────────────────────────────────────
     st.sidebar.divider()
     st.sidebar.caption(

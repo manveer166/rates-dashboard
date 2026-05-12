@@ -519,7 +519,7 @@ def style_returns_table(df: pd.DataFrame) -> "pd.io.formats.style.Styler":
             return "background-color: #8b0000; color: white"
 
     numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-    return df.style.applymap(_color, subset=numeric_cols).format(
+    return df.style.map(_color, subset=numeric_cols).format(
         {c: "{:.2f}" for c in numeric_cols}, na_rep="—"
     )
 
@@ -543,6 +543,6 @@ def style_zscore_table(df: pd.DataFrame) -> "pd.io.formats.style.Styler":
         return ""
 
     numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-    return df.style.applymap(_color, subset=numeric_cols).format(
+    return df.style.map(_color, subset=numeric_cols).format(
         {c: "{:.2f}" for c in numeric_cols}, na_rep="—"
     )

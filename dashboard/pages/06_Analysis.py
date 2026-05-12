@@ -120,6 +120,7 @@ section = st.selectbox("Analysis Section", [
     "8. Portfolio Analytics",
     "9. Weekly Update Tables",
     "10. Custom Trade Builder",
+    "11. Composite Score Explorer",
 ], index=0)
 
 st.divider()
@@ -383,7 +384,7 @@ if section.startswith("0"):
         # Otherwise Streamlit shows "None" for NaN in mixed columns
         # Filter by type
         type_filter = st.multiselect("Show trade types", ["Outright","Curve","Curve*","Fly","Fly*"],
-                                     default=["Outright","Curve","Fly"], key="type_filt")
+                                     default=["Outright","Curve","Curve*","Fly","Fly*"], key="type_filt")
         result = result[result["Type"].isin(type_filter)].reset_index(drop=True)
 
         if not result.empty:
@@ -884,7 +885,7 @@ elif section.startswith("2"):
         if v > -5: return "background-color: #8b3030; color: white"
         return "background-color: #8b0000; color: white"
 
-    st.dataframe(cr_df.style.applymap(_cr_color, subset=["Total (bps)","Annualised (bps)"]).format("{:.2f}", na_rep="—"),
+    st.dataframe(cr_df.style.map(_cr_color, subset=["Total (bps)","Annualised (bps)"]).format("{:.2f}", na_rep="—"),
                  use_container_width=True)
 
     # Bar chart
@@ -1499,6 +1500,601 @@ elif section.startswith("10"):
 
     st.divider()
     st.caption(f"Data: {len(df)} rows  |  {df.index[0].date()} → {df.index[-1].date()}  |  O/N rate: {on_rate:.3f}%")
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 11. COMPOSITE SCORE EXPLORER
+# ═══════════════════════════════════════════════════════════════════════════
+if section.startswith("11"):
+    st.subheader("Composite Score Explorer")
+
+    # ── What is it? ──────────────────────────────────────────────────────
+    with st.expander("What is the Composite Score?", expanded=True):
+        st.markdown("""
+        The **Composite Score** merges three signals into a single **0–100** ranking.
+        It has **two layers of adaptiveness** — both controlled by sliders below.
+
+        ---
+        #### Layer 1 — Amplification power (within each dimension)
+        Before weighting, each signal is put through `sign(x) × |x|^power`. This makes
+        outliers dominate *within* their dimension:
+
+        | Power | Sharpe 1.5 vs 0.5 | Z −2.0 vs −0.5 |
+        |---|---|---|
+        | 1.0 linear | 3× stronger | 4× stronger |
+        | 2.0 quadratic | **9× stronger** | 16× stronger |
+        | 3.0 cubic | **27× stronger** | 64× stronger |
+
+        #### Layer 2 — Softmax dynamic weights (across dimensions)
+        After amplification, the weight each dimension gets is not fixed — it **scales
+        with its signal strength** for that specific trade via a softmax:
+
+        ```
+        w_eff_i  =  base_weight_i × exp(K × signal_i)
+        ```
+
+        At `K = 0` → purely fixed weights (no dynamic adjustment).
+        At `K = 1.5` → if a trade has Sharpe signal = 1.0 (max) and Z signal = 0.3,
+        the Sharpe weight pulls from ~50% up to ~**70%** automatically.
+        The dominant signal **steals weight** from the weaker ones.
+
+        #### Signals
+        | Signal | Direction | Base weight |
+        |---|---|---|
+        | **Sharpe** (63d ann. vol) | Higher = better | 50% |
+        | **Z-score cheap** (1Y) | More negative = better | 30% |
+        | **Risk** (ann. vol bps) | Lower = better | 20% |
+
+        #### Column glossary
+        - `Sh(63d)` — Sharpe using 63-day realised vol, annualised
+        - `Z(1Y)` — standard deviations from 252-day mean (negative = cheap for receivers)
+        - `E[Ret]` — annualised expected carry + rolldown in bps
+        - `LW` suffix — *Last Week* value (5 trading days ago) — is the signal building or fading?
+        - `Risk` — annualised realised vol in bps
+
+        > **Market flow note:** The only real positioning data here is **CFTC COT**
+        > (weekly Leveraged Fund + Asset Manager net positions in Treasury futures).
+        > See the **CTA Positioning** page. Intraday order flow / TRACE not connected.
+        """)
+
+    st.divider()
+
+    # ── Controls ─────────────────────────────────────────────────────────
+    left_col, right_col = st.columns([1, 2], gap="large")
+
+    with left_col:
+        st.markdown("#### Base weights")
+        w_sh = st.slider("Sharpe weight",   0, 100, 50, 5, key="cs_wsh",
+                         help="Starting weight for Sharpe — may grow dynamically if signal is extreme")
+        w_z  = st.slider("Z-cheap weight",  0, 100, 30, 5, key="cs_wz",
+                         help="Starting weight for cheap-Z — negative Z = cheap for receivers")
+        w_rk = st.slider("Risk weight",     0, 100, 20, 5, key="cs_wrk",
+                         help="Starting weight for low-risk — usually a tie-breaker")
+        total_w = w_sh + w_z + w_rk
+        if total_w == 0:
+            st.warning("All weights are zero.")
+            st.stop()
+        st.caption(
+            f"Base: **Sh {w_sh/total_w:.0%}** · **Z {w_z/total_w:.0%}** · **Risk {w_rk/total_w:.0%}**"
+        )
+
+        st.markdown("#### Softmax sensitivity (K)")
+        K = st.slider(
+            "K — dynamic weight sensitivity", 0.0, 3.0, 1.5, 0.1, key="cs_K",
+            help=(
+                "K=0: fixed weights. "
+                "K=1.5: a max-signal dimension grows from base to ~+40% of weight. "
+                "K=3.0: the dominant signal takes almost all the weight."
+            ),
+        )
+        if K == 0.0:
+            st.caption("K = 0 → purely fixed weights, no dynamic adjustment")
+        else:
+            # Show example effective weight shift for a max-signal trade
+            import math as _math
+            _ex_sh = (w_sh / total_w) * _math.exp(K * 1.0)
+            _ex_z  = (w_z  / total_w) * _math.exp(K * 0.3)
+            _ex_rk = (w_rk / total_w) * _math.exp(K * 0.4)
+            _ex_t  = _ex_sh + _ex_z + _ex_rk
+            st.caption(
+                f"Example — trade with max Sharpe signal (1.0), Z=0.3, Risk=0.4:\n"
+                f"Effective weights → **Sh {_ex_sh/_ex_t:.0%}** · "
+                f"Z {_ex_z/_ex_t:.0%} · Risk {_ex_rk/_ex_t:.0%}"
+            )
+
+        st.markdown("#### Amplification powers")
+        st.caption("Power > 1: within a dimension, outliers dominate more than linearly")
+        p_sh = st.slider("Sharpe power", 1.0, 3.0, 2.0, 0.1, key="cs_psh",
+                         help="2.0 = quadratic. Sh 1.5 is 9× stronger than Sh 0.5")
+        p_z  = st.slider("Z power",     1.0, 2.5, 1.5, 0.1, key="cs_pz",
+                         help="1.5: Z=−2 is ~5× stronger than Z=−0.5")
+        p_rk = st.slider("Risk power",  0.5, 1.5, 1.0, 0.1, key="cs_prk",
+                         help="Keep near 1.0 — risk is a tie-breaker")
+
+        st.markdown("#### Live formula")
+        _formula_lines = [
+            "# Step 1: amplify within each dimension",
+            f"sh_sig = sign(Sh)×|Sh|^{p_sh:.1f}  → minmax 0-1",
+            f"z_sig  = sign(-Z)×|Z|^{p_z:.1f}   → minmax 0-1",
+            f"rk_sig = -Risk^{p_rk:.1f}           → minmax 0-1",
+            "",
+            "# Step 2: softmax dynamic weights per trade",
+            f"sh_eff = {w_sh/total_w:.2f} × exp({K:.1f} × sh_sig)",
+            f"z_eff  = {w_z/total_w:.2f} × exp({K:.1f} × z_sig)",
+            f"rk_eff = {w_rk/total_w:.2f} × exp({K:.1f} × rk_sig)",
+            "",
+            "# Step 3: combine (weights auto-normalise per trade)",
+            "Score = (sh_eff×sh_sig + z_eff×z_sig",
+            "        + rk_eff×rk_sig) / (sh_eff+z_eff+rk_eff)",
+            "Score × 100  →  0–100",
+        ]
+        st.code("\n".join(_formula_lines), language="python")
+
+    # ── Build scanner ─────────────────────────────────────────────────
+    @st.cache_data(ttl=1800, show_spinner=False)
+    def _cs_scanner(_df: pd.DataFrame, on_r: float) -> pd.DataFrame:
+        avail_t = [t for t in ALL_TENORS if t in _df.columns]
+        rdf_c = _df[avail_t].ffill(limit=3).dropna(how="all")
+        if len(rdf_c) < 252:
+            return pd.DataFrame()
+        curve_c = {t: float(rdf_c[t].iloc[-1]) for t in avail_t if not pd.isna(rdf_c[t].iloc[-1])}
+
+        def _dv(t):
+            return fi.approx_dv01(fi.TENOR_YEARS.get(t, 10.0), curve_c.get(t, 4.0))
+
+        # Beta of each tenor vs 10Y (same method as main scanner)
+        _beta_ref_c = "10Y"
+        _betas_c = {}
+        if _beta_ref_c in rdf_c.columns:
+            ref_chg = rdf_c[_beta_ref_c].diff().dropna() * 100
+            for _t in avail_t:
+                s_chg   = rdf_c[_t].diff().dropna() * 100
+                aligned = pd.concat([s_chg, ref_chg], axis=1).dropna()
+                if len(aligned) >= 60:
+                    aligned.columns = ["y", "x"]
+                    _var = aligned["x"].var()
+                    _betas_c[_t] = aligned["y"].cov(aligned["x"]) / _var if _var > 0 else 1.0
+                else:
+                    _betas_c[_t] = 1.0
+
+        def _cs_row(trade, ttype, s_raw, cr):
+            s = s_raw.dropna()
+            if len(s) < 252: return None
+            chg  = s.diff().dropna() * 100
+            rvol = float(chg.tail(63).std() * np.sqrt(252)) if len(chg) >= 63 else np.nan
+            ann  = cr["total"] * 12
+            d1d  = round((float(s.iloc[-1]) - float(s.iloc[-2])) * 100, 1) if len(s) >= 2 else np.nan
+            return {
+                "Trade":  trade, "Type": ttype,
+                "Sharpe": round(ann / rvol, 2) if rvol and rvol > 0 else np.nan,
+                "Z":      round(fi.zscore_current(s, 252), 2),
+                "E[Ret]": round(ann, 1),
+                "Risk":   round(rvol, 1) if not np.isnan(rvol) else np.nan,
+                "D1D":    d1d,
+            }
+
+        rows  = []
+        pairs   = [(avail_t[i], avail_t[j])
+                   for i in range(len(avail_t)) for j in range(i+1, len(avail_t))]
+        triples = [(avail_t[i], avail_t[j], avail_t[k])
+                   for i in range(len(avail_t)) for j in range(i+1, len(avail_t))
+                   for k in range(j+1, len(avail_t))]
+
+        # 1) Outrights
+        for t in avail_t:
+            cr = fi.forward_carry_rolldown(curve_c, on_r, "outright", t)
+            r  = _cs_row(f"Rcv {t}", "Outright", rdf_c[t], cr)
+            if r: rows.append(r)
+
+        # 2) DV01 curves
+        for t1, t2 in pairs:
+            d1, d2 = _dv(t1), _dv(t2)
+            s  = (rdf_c[t2] - (d2/d1 if d1>0 else 1.0) * rdf_c[t1]).dropna()
+            cr = fi.forward_carry_rolldown(curve_c, on_r, "spread", t2, t1)
+            r  = _cs_row(f"Rcv {t1}/{t2}", "Curve", s, cr)
+            if r: rows.append(r)
+
+        # 3) Beta curves*
+        if _beta_ref_c in rdf_c.columns and _betas_c:
+            for t1, t2 in pairs:
+                b1, b2 = _betas_c.get(t1, 1.0), _betas_c.get(t2, 1.0)
+                s  = (rdf_c[t2] - (b2/b1 if b1!=0 else 1.0) * rdf_c[t1]).dropna()
+                cr = fi.forward_carry_rolldown(curve_c, on_r, "spread", t2, t1)
+                r  = _cs_row(f"Rcv {t1}/{t2}*", "Curve*", s, cr)
+                if r: rows.append(r)
+
+        # 4) DV01 flies
+        for w1, belly, w2 in triples:
+            d_w1, d_b, d_w2 = _dv(w1), _dv(belly), _dv(w2)
+            w_b  = 2.0 * (d_w1 / d_b)  if d_b  > 0 else 2.0
+            w_w2 = d_w1 / d_w2          if d_w2 > 0 else 1.0
+            s    = (w_b * rdf_c[belly] - rdf_c[w1] - w_w2 * rdf_c[w2]).dropna()
+            cr   = fi.forward_carry_rolldown(curve_c, on_r, "fly", w1, belly, w2)
+            r    = _cs_row(f"Rcv {w1}/{belly}/{w2}", "Fly", s, cr)
+            if r: rows.append(r)
+
+        # 5) Beta flies*
+        if _beta_ref_c in rdf_c.columns and _betas_c:
+            for w1, belly, w2 in triples:
+                b_w1 = _betas_c.get(w1, 1.0) or 0.01
+                b_b, b_w2 = _betas_c.get(belly, 1.0), _betas_c.get(w2, 1.0)
+                c  = (2.0 * b_b - b_w1) / b_w2 if b_w2 != 0 else 1.0
+                s  = (2.0 * rdf_c[belly] - rdf_c[w1] - c * rdf_c[w2]).dropna()
+                cr = fi.forward_carry_rolldown(curve_c, on_r, "fly", w1, belly, w2)
+                r  = _cs_row(f"Rcv {w1}/{belly}/{w2}*", "Fly*", s, cr)
+                if r: rows.append(r)
+
+        return pd.DataFrame(rows)
+
+    with right_col:
+        with st.spinner("Building scanner…"):
+            _cs_raw = _cs_scanner(df, on_rate)
+
+        if _cs_raw.empty:
+            st.warning("Not enough history to build scanner (need ≥ 252 rows).")
+        else:
+            _cs = _cs_raw.dropna(subset=["Sharpe", "Z", "Risk"]).copy()
+
+            def _amp_cs(s: pd.Series, power: float) -> pd.Series:
+                """sign(x)|x|^p then min-max to 0-1. Outliers dominate within dimension."""
+                raw = s.map(lambda x: float(np.sign(x) * abs(x) ** power) if pd.notna(x) else np.nan)
+                mn, mx = raw.min(), raw.max()
+                if abs(mx - mn) < 1e-9:
+                    return pd.Series(0.5, index=s.index)
+                return (raw - mn) / (mx - mn)
+
+            # ── Absolute score  (symmetric −100 to +100) ─────────────────────
+            # +100 = perfect receive, −100 = perfect pay, 0 = no edge
+            # Directional components centred at 0 → +100 / −100
+            #   Sharpe +1.0 → +94 · Sharpe −1.0 → −94 · Sharpe 0 → 0
+            #   Z +1.5 → +88 (cheap rcv) · Z −1.5 → −88 (rich rcv) · Z 0 → 0
+            #   Risk quality multiplier [0→1]: Risk 10 → 0.88 · Risk 25 → 0.50 · Risk 50 → 0.03
+            # Final: AbsScore = dir_raw × (0.4 + 0.6 × rk_quality)  clipped ±100
+            def _sig(x, c, k): return 100.0 / (1.0 + np.exp(-k * (x - c)))
+            _b_sh = w_sh / total_w
+            _b_z  = w_z  / total_w
+            _b_rk = w_rk / total_w
+            # directional: each maps to [−100, +100] centred at 0
+            # Z > 0 → rate HIGH vs history → cheap to receive → positive z_d (good)
+            _sh_d  = _cs["Sharpe"].map(lambda x: _sig(x,   0.0, 4.00)*2-100 if pd.notna(x) else 0.0)
+            _z_d   = _cs["Z"].map(     lambda x: _sig(x,   0.0, 1.33)*2-100 if pd.notna(x) else 0.0)
+            # quality: sigmoid → [0, 1]; low risk scores near 1, high risk near 0
+            _rk_q  = _cs["Risk"].map(  lambda x: _sig(-x,-25.0,0.133)/100   if pd.notna(x) else 0.5)
+            _dir_raw = 0.625*_sh_d + 0.375*_z_d
+            _cs["AbsScore"] = (
+                (_dir_raw * (0.4 + 0.6*_rk_q)).round(0).clip(-100, 100).astype(int)
+            )
+
+            if len(_cs) >= 3:
+                # Layer 1: amplify within each dimension
+                _sh_n = _amp_cs(_cs["Sharpe"],  p_sh)
+                _z_n  = _amp_cs(-_cs["Z"],       p_z)
+                _rk_n = _amp_cs(-_cs["Risk"],    p_rk)
+
+                # Layer 2: softmax dynamic weights
+                _eff_sh = _b_sh * np.exp(K * _sh_n)
+                _eff_z  = _b_z  * np.exp(K * _z_n)
+                _eff_rk = _b_rk * np.exp(K * _rk_n)
+                _eff_tot = _eff_sh + _eff_z + _eff_rk
+
+                _score_raw = (
+                    (_eff_sh / _eff_tot) * _sh_n +
+                    (_eff_z  / _eff_tot) * _z_n  +
+                    (_eff_rk / _eff_tot) * _rk_n
+                )
+                _cs["RelScore"] = _score_raw.mul(100).round(0).astype(int)
+                _cs["W_Sh"] = (_eff_sh / _eff_tot * 100).round(0).astype(int)
+                _cs["W_Z"]  = (_eff_z  / _eff_tot * 100).round(0).astype(int)
+                _cs["W_Rk"] = (_eff_rk / _eff_tot * 100).round(0).astype(int)
+            else:
+                _cs["RelScore"] = 0
+                _cs["W_Sh"] = w_sh
+                _cs["W_Z"]  = w_z
+                _cs["W_Rk"] = w_rk
+
+            # Sort by AbsScore (objective) — RelScore is secondary context
+            _cs = _cs.sort_values("AbsScore", ascending=False).reset_index(drop=True)
+            _cs.index = _cs.index + 1  # rank from 1
+
+            # ── Ranked table ──────────────────────────────────────────
+            _tbl_tab, _wt_tab = st.tabs(["Ranked scores", "Effective weights per trade"])
+
+            with _tbl_tab:
+                _display = _cs[["Trade", "Type", "AbsScore", "RelScore",
+                                 "Sharpe", "Z", "E[Ret]", "Risk"]].copy()
+
+                _n_rows = len(_display)
+                _medals_pos = {1: "#FFD700", 2: "#C0C0C0", 3: "#CD7F32"}   # top-3 receive
+                _medals_neg = {_n_rows: "#FFD700",
+                               _n_rows-1: "#C0C0C0",
+                               _n_rows-2: "#CD7F32"}                       # bottom-3 pay
+
+                def _medal_bg_row(row):
+                    i = row.name       # 1-based rank
+                    nc = len(row)
+                    # Background: top-5 green, bottom-5 red
+                    if i <= 5:
+                        base = ["background-color:rgba(20,83,45,0.40)"] * nc
+                    elif i >= _n_rows - 4:
+                        base = ["background-color:rgba(127,29,29,0.40)"] * nc
+                    else:
+                        base = [""] * nc
+                    # Medal text colour (top-3 receive or bottom-3 pay)
+                    colour = _medals_pos.get(i) or _medals_neg.get(i)
+                    if colour:
+                        return [b + f";color:{colour};font-weight:bold" for b in base]
+                    return base
+
+                st.dataframe(
+                    _display.style
+                        .apply(_medal_bg_row, axis=1)
+                        .background_gradient(subset=["AbsScore"],  cmap="RdYlGn", vmin=-100, vmax=100)
+                        .background_gradient(subset=["RelScore"],  cmap="RdYlGn", vmin=0,    vmax=100)
+                        .background_gradient(subset=["Sharpe"],    cmap="RdYlGn", vmin=-1.5, vmax=1.5)
+                        .background_gradient(subset=["Z"],         cmap="RdYlGn_r", vmin=-2.5, vmax=2.5)
+                        .format({"AbsScore": "{:.0f}", "RelScore": "{:.0f}",
+                                 "Sharpe": "{:+.2f}", "Z": "{:+.2f}",
+                                 "E[Ret]": "{:+.1f}", "Risk": "{:.1f}"}),
+                    use_container_width=True,
+                    height=400,
+                )
+                st.caption(
+                    "🟢 Green rows = top-5 receive · 🔴 Red rows = top-5 pay · "
+                    "🥇 Gold · 🥈 Silver · 🥉 Bronze = best 3 in each direction.  "
+                    "**AbsScore** +100 = ideal receive · −100 = ideal pay · 0 = no edge.  "
+                    "**RelScore** = relative rank within today's universe."
+                )
+
+            with _wt_tab:
+                st.caption(
+                    "Effective weight each dimension gets **for that specific trade** "
+                    "after softmax adjustment. A trade with an outlier Sharpe will show "
+                    "W_Sh > base weight; its strong signal steals weight from Z and Risk."
+                )
+                _wd = _cs[["Trade", "AbsScore", "RelScore", "Sharpe", "Z",
+                            "Risk", "W_Sh", "W_Z", "W_Rk"]].copy()
+                _wd.columns = ["Trade", "AbsScore", "RelScore", "Sharpe", "Z",
+                               "Risk", "W_Sh%", "W_Z%", "W_Rk%"]
+                st.dataframe(
+                    _wd.style
+                        .background_gradient(subset=["AbsScore"], cmap="RdYlGn", vmin=-100, vmax=100)
+                        .background_gradient(subset=["RelScore"], cmap="RdYlGn", vmin=0,   vmax=100)
+                        .background_gradient(subset=["W_Sh%"],   cmap="Blues",  vmin=0,   vmax=100)
+                        .background_gradient(subset=["W_Z%"],    cmap="Greens", vmin=0,   vmax=100)
+                        .background_gradient(subset=["W_Rk%"],   cmap="Oranges",vmin=0,   vmax=100)
+                        .format({"AbsScore": "{:.0f}", "RelScore": "{:.0f}",
+                                 "Sharpe": "{:+.2f}", "Z": "{:+.2f}", "Risk": "{:.1f}",
+                                 "W_Sh%": "{:.0f}%", "W_Z%": "{:.0f}%", "W_Rk%": "{:.0f}%"}),
+                    use_container_width=True,
+                    height=400,
+                )
+                st.caption(
+                    f"Base weights: Sh {w_sh/total_w:.0%} · Z {w_z/total_w:.0%} · "
+                    f"Risk {w_rk/total_w:.0%}  |  K = {K:.1f}"
+                )
+
+    # ── Visualisations ────────────────────────────────────────────────
+    if not _cs_raw.empty and "_cs" in dir():
+        st.divider()
+        st.markdown("#### Visualise — three dimensions at once")
+        _v1, _v2 = st.tabs(["3D Scatter", "Bubble Chart  (2D + size)"])
+
+        with _v1:
+            st.caption(
+                "**X** = Z-score (1Y) · **Y** = Risk (vol bps) · "
+                "**Z** = E[Ret] (bps/yr) · **Colour** = Composite Score · "
+                "**Size** ∝ |1-day move|"
+            )
+            _d1d_3d = _cs["D1D"].abs().fillna(0) if "D1D" in _cs.columns else pd.Series(5, index=_cs.index)
+            _d1d_max3d = float(_d1d_3d.max()) or 1.0
+            # Volume ∝ r³ → to double volume multiply radius by 2^(1/3)≈1.26
+            # Base range 14–32 gives roughly 2× visual volume vs old 4–18
+            _marker_size3d = (_d1d_3d / _d1d_max3d * 18 + 14).clip(lower=14, upper=32)
+            _nr3d = len(_cs)
+            _mtp3d = {1: "#FFD700", 2: "#C0C0C0", 3: "#CD7F32"}
+            _mbp3d = {_nr3d: "#FFD700", _nr3d-1: "#C0C0C0", _nr3d-2: "#CD7F32"}
+
+            # Offset labels just above each marker along the E[Ret] axis
+            _zr3d = float(_cs["E[Ret]"].max() - _cs["E[Ret]"].min()) or 100.0
+            _zo3d = _zr3d * 0.07
+
+            # Build one annotation per trade — only medal ranks get a coloured background
+            _annots3d = []
+            for _i3 in _cs.index:
+                _r3 = _cs.loc[_i3]
+                _lbl3 = str(_r3["Trade"]).replace("Rcv ", "")
+                if _i3 in _mtp3d:
+                    _fc3, _bg3, _bc3, _fs3 = _mtp3d[_i3], "rgba(20,83,45,0.60)", "rgba(34,197,94,0.80)", 11
+                elif _i3 in _mbp3d:
+                    _fc3, _bg3, _bc3, _fs3 = _mbp3d[_i3], "rgba(127,29,29,0.60)", "rgba(239,68,68,0.80)", 11
+                elif _i3 <= 5:
+                    _fc3, _bg3, _bc3, _fs3 = "#22c55e", "rgba(0,0,0,0)", "rgba(0,0,0,0)", 9
+                else:
+                    _fc3, _bg3, _bc3, _fs3 = "#94a8c9", "rgba(0,0,0,0)", "rgba(0,0,0,0)", 8
+                _annots3d.append(dict(
+                    x=float(_r3["Z"]), y=float(_r3["Risk"]),
+                    z=float(_r3["E[Ret]"]) + _zo3d,
+                    text=_lbl3,
+                    font=dict(size=_fs3, color=_fc3),
+                    bgcolor=_bg3, bordercolor=_bc3,
+                    borderwidth=1, borderpad=3,
+                    showarrow=False,
+                ))
+
+            # Single main trace — markers only; text purely via scene.annotations
+            _fig3d = go.Figure(go.Scatter3d(
+                x=_cs["Z"],
+                y=_cs["Risk"],
+                z=_cs["E[Ret]"],
+                customdata=np.stack([_cs["AbsScore"], _cs["Sharpe"],
+                                     _cs.get("D1D", pd.Series(np.nan, index=_cs.index))], axis=-1),
+                text=_cs["Trade"].str.replace("Rcv ", "", regex=False),
+                mode="markers",
+                marker=dict(
+                    size=_marker_size3d,
+                    color=_cs["AbsScore"],
+                    colorscale="RdYlGn",
+                    cmin=-100, cmax=100,
+                    colorbar=dict(title="AbsScore", thickness=12),
+                    opacity=1.0,
+                    line=dict(width=0),
+                ),
+                hovertemplate=(
+                    "<b>%{text}</b><br>"
+                    "Z(1Y): %{x:+.2f}<br>"
+                    "Risk: %{y:.1f} bps<br>"
+                    "E[Ret]: %{z:+.1f} bps/yr<br>"
+                    "Score: %{customdata[0]:.0f}<br>"
+                    "Sharpe: %{customdata[1]:+.2f}<br>"
+                    "D1D: %{customdata[2]:+.1f} bps<extra></extra>"
+                ),
+            ))
+            _fig3d.update_layout(
+                template=PLOTLY_THEME,
+                height=650,
+                scene=dict(
+                    xaxis=dict(title="Z-score (1Y)",  backgroundcolor="#0a1628",
+                               gridcolor="#1e3a5f", showbackground=True),
+                    yaxis=dict(title="Risk (bps)",     backgroundcolor="#0a1628",
+                               gridcolor="#1e3a5f", showbackground=True),
+                    zaxis=dict(title="E[Ret] (bps/yr)",backgroundcolor="#0a1628",
+                               gridcolor="#1e3a5f", showbackground=True),
+                    camera=dict(eye=dict(x=1.5, y=-1.5, z=1.0)),
+                    annotations=_annots3d,
+                ),
+                margin=dict(l=0, r=0, b=0, t=10),
+            )
+            st.plotly_chart(_fig3d, use_container_width=True)
+            st.caption(
+                "Rotate with mouse drag · Scroll to zoom · "
+                "Best trades: top-left-low corner (cheap Z, low Risk, high E[Ret]) · "
+                "Bigger bubble = bigger move yesterday"
+            )
+
+        with _v2:
+            st.caption(
+                "**X** = Z-score (1Y) · **Y** = Sharpe (63d ann.) · "
+                "**Bubble size** ∝ |1-day move| · **Colour** = Composite Score"
+            )
+            _d1d_abs = _cs["D1D"].abs().fillna(0) if "D1D" in _cs.columns else pd.Series(0, index=_cs.index)
+            _d1d_max = float(_d1d_abs.max()) or 1.0
+            _bubble_size = (_d1d_abs / _d1d_max * 40 + 6).clip(lower=6, upper=50).fillna(8)
+
+            _nr2d = len(_cs)
+            _mtp2d = {1: "#FFD700", 2: "#C0C0C0", 3: "#CD7F32"}
+            _mbp2d = {_nr2d: "#FFD700", _nr2d-1: "#C0C0C0", _nr2d-2: "#CD7F32"}
+
+            # Per-point text colour and background
+            _tc2d, _tbg2d = [], []
+            for _i2 in _cs.index:
+                if _i2 in _mtp2d:
+                    _tc2d.append(_mtp2d[_i2]);  _tbg2d.append("rgba(20,83,45,0.55)")
+                elif _i2 in _mbp2d:
+                    _tc2d.append(_mbp2d[_i2]);  _tbg2d.append("rgba(127,29,29,0.55)")
+                elif _i2 <= 5:
+                    _tc2d.append("#22c55e");     _tbg2d.append("rgba(20,83,45,0.25)")
+                else:
+                    _tc2d.append("#94a8c9");     _tbg2d.append("rgba(0,0,0,0)")
+
+            _fig2d = go.Figure(go.Scatter(
+                x=_cs["Z"],
+                y=_cs["Sharpe"],
+                mode="markers+text",
+                text=_cs["Trade"].str.replace("Rcv ", "", regex=False),
+                textposition="top center",
+                textfont=dict(size=9, color=_tc2d, bgcolor=_tbg2d),
+                customdata=np.stack([_cs["AbsScore"], _cs["Risk"], _cs["E[Ret]"], _cs["Type"],
+                                     _cs.get("D1D", pd.Series(np.nan, index=_cs.index))], axis=-1),
+                marker=dict(
+                    size=_bubble_size,
+                    color=_cs["AbsScore"],
+                    colorscale="RdYlGn",
+                    cmin=-100, cmax=100,
+                    colorbar=dict(title="AbsScore", thickness=12),
+                    opacity=0.82,
+                    line=dict(width=1, color="#2a3f5f"),
+                ),
+                hovertemplate=(
+                    "<b>%{text}</b>  [%{customdata[3]}]<br>"
+                    "Z(1Y): %{x:+.2f}<br>"
+                    "Sharpe(63d): %{y:+.2f}<br>"
+                    "Risk: %{customdata[1]:.1f} bps<br>"
+                    "E[Ret]: %{customdata[2]:+.1f} bps<br>"
+                    "Score: %{customdata[0]:.0f}<br>"
+                    "D1D: %{customdata[4]:+.1f} bps<extra></extra>"
+                ),
+            ))
+            # Quadrant labels (subtle, in each corner)
+            _sh_max = float(_cs["Sharpe"].max())
+            _sh_min = float(_cs["Sharpe"].min())
+            _z_ext  = 2.8
+            # Z > 0 → rate/spread HIGH vs history → cheap to receive
+            # Z < 0 → rate/spread LOW  vs history → rich to receive
+            for _lbl, _x, _y, _xanchor in [
+                ("RICH + POSITIVE CARRY",  -_z_ext,  _sh_max * 0.8, "left"),
+                ("CHEAP + POSITIVE CARRY",  _z_ext,  _sh_max * 0.8, "right"),  # ← sweet spot
+                ("RICH + NEGATIVE CARRY",  -_z_ext,  _sh_min * 0.8, "left"),
+                ("CHEAP + NEGATIVE CARRY",  _z_ext,  _sh_min * 0.8, "right"),
+            ]:
+                _fig2d.add_annotation(
+                    x=_x, y=_y, text=_lbl, showarrow=False,
+                    font=dict(size=8, color="rgba(148,168,201,0.22)"),
+                    xanchor=_xanchor,
+                )
+            # Sparse ticks — only the most important numbers, skip 0 (the axis crossing)
+            _y_key = sorted({round(_sh_min, 1), round(_sh_max, 1)})
+            _fig2d.update_layout(
+                template=PLOTLY_THEME,
+                height=560,
+                # True "+" crossing axes: zeroline=True places the axis line at 0,0
+                # showline=False removes the outer border box
+                xaxis=dict(
+                    title="Z-score (1Y)",
+                    zeroline=True,
+                    zerolinewidth=1.5,
+                    zerolinecolor="rgba(148,168,201,0.6)",
+                    showline=False,
+                    showgrid=False,
+                    tickmode="array",
+                    tickvals=[-2, -1, 1, 2],       # skip 0 — it sits on the axis line
+                    ticktext=["-2", "-1", "1", "2"],
+                    ticks="outside",
+                    ticklen=5,
+                    tickcolor="rgba(148,168,201,0.4)",
+                    tickfont=dict(size=10),
+                ),
+                yaxis=dict(
+                    title="Sharpe (63d ann.)",
+                    zeroline=True,
+                    zerolinewidth=1.5,
+                    zerolinecolor="rgba(148,168,201,0.6)",
+                    showline=False,
+                    showgrid=False,
+                    tickmode="array",
+                    tickvals=_y_key,                # only min and max — skip 0
+                    ticktext=[str(v) for v in _y_key],
+                    ticks="outside",
+                    ticklen=5,
+                    tickcolor="rgba(148,168,201,0.4)",
+                    tickfont=dict(size=10),
+                ),
+                margin=dict(l=50, r=20, b=60, t=20),
+            )
+            # Axis arrow labels near ends of each axis
+            _fig2d.add_annotation(x= 3.1, y=0,       text="cheap →",   showarrow=False,
+                xanchor="left",   yanchor="middle",
+                font=dict(size=9, color="rgba(148,168,201,0.55)"))
+            _fig2d.add_annotation(x=-3.1, y=0,       text="← rich",    showarrow=False,
+                xanchor="right",  yanchor="middle",
+                font=dict(size=9, color="rgba(148,168,201,0.55)"))
+            _fig2d.add_annotation(x=0, y=_sh_max * 1.05, text="carry ↑", showarrow=False,
+                xanchor="center", yanchor="bottom",
+                font=dict(size=9, color="rgba(148,168,201,0.55)"))
+            _fig2d.add_annotation(x=0, y=_sh_min * 1.05, text="carry ↓", showarrow=False,
+                xanchor="center", yanchor="top",
+                font=dict(size=9, color="rgba(148,168,201,0.55)"))
+            st.plotly_chart(_fig2d, use_container_width=True)
+            st.caption("Bubble size ∝ |1-day move| — bigger bubble = bigger move yesterday")
+
 
 # ── Tutorial overlay (must be LAST) ────────────────────────────────────
 from dashboard.tutorial import render_tutorial

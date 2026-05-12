@@ -1,0 +1,14 @@
+name = "macromanv-cta"
+main = "src/index.js"
+compatibility_date = "2026-01-01"
+
+# D1 database stores the click log
+[[d1_databases]]
+binding = "DB"
+database_name = "cta_clicks"
+database_id = "REPLACE_AFTER_wrangler_d1_create"
+
+# Optional: bind a KV namespace for short-link aliases
+# [[kv_namespaces]]
+# binding = "LINKS"
+# id = "REPLACE_AFTER_wrangler_kv_namespace_create"

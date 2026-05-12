@@ -1,0 +1,65 @@
+name: Daily Substack brief
+
+on:
+  schedule:
+    # 11:00 UTC weekdays = 07:00 ET (handles DST automatically — close enough).
+    # Adjust if you want exactly 07:00 ET year-round: 11:00 in winter, 12:00 in summer.
+    - cron: "0 11 * * 1-5"
+  workflow_dispatch: {}  # manual trigger from the Actions tab
+
+jobs:
+  brief:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install deps
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Materialise secrets
+        env:
+          FRED_API_KEY:      ${{ secrets.FRED_API_KEY }}
+          DASHBOARD_URL:     ${{ secrets.DASHBOARD_URL }}
+          GMAIL_USER:        ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+        run: |
+          mkdir -p .streamlit
+          cat > .streamlit/secrets.toml <<EOF
+          FRED_API_KEY = "${FRED_API_KEY}"
+          DASHBOARD_URL = "${DASHBOARD_URL}"
+          GMAIL_USER = "${GMAIL_USER}"
+          GMAIL_APP_PASSWORD = "${GMAIL_APP_PASSWORD}"
+          EOF
+
+      - name: Generate today's brief
+        run: |
+          python scripts/daily_brief.py
+
+      - name: Commit the brief back to the repo
+        run: |
+          git config user.name  "macromanv-bot"
+          git config user.email "bot@macromanv.com"
+          git add briefs/
+          if ! git diff --staged --quiet; then
+            git commit -m "Daily brief: $(date -u +%Y-%m-%d)"
+            git push
+          else
+            echo "No changes to commit."
+          fi
+
+      - name: Upload artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-brief-${{ github.run_id }}
+          path: briefs/
+          retention-days: 30
