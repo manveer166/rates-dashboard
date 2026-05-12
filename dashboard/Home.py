@@ -397,9 +397,18 @@ def main():
         unsafe_allow_html=True,
     )
 
-    # ── Latest from Macro Manv (RSS tile) ──────────────────────────────────
-    from dashboard.components.news import render_substack_tile
-    render_substack_tile(limit=3, campaign="home_tile")
+    # ── Latest from Macro Manv + Bloomberg + FT (3-col RSS) ────────────────
+    from dashboard.components.news import (
+        render_news_panel, render_central_banks_panel,
+    )
+    st.subheader("📰 Latest")
+    render_news_panel(limit_per_source=5, campaign="home_panel")
+
+    st.write("")  # spacing
+
+    # ── Central banks press releases (Fed · ECB · BoE) ─────────────────────
+    st.subheader("🏛️ Central banks")
+    render_central_banks_panel(limit_per_source=5)
 
     st.divider()
 
