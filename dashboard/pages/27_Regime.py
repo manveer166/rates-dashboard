@@ -121,12 +121,71 @@ def _name_cluster(row):
 
 centroids["label"] = centroids.apply(_name_cluster, axis=1)
 
+
+# ── Return-driver classification per regime ──────────────────────────────
+# For each regime, compute Sharpe of two archetype trades:
+#   • CARRY archetype     = receive 5Y outright (level / carry / roll)
+#   • CONVEXITY archetype = receive 2Y/5Y/10Y belly fly (curvature / vol pickup)
+# Combine with realised |daily Δ10Y| to pick a driver label.
+def _regime_driver(regime_idx: int) -> dict:
+    regime_dates = labels[labels == regime_idx].index
+    out = {"driver": "—", "carry_sharpe": 0.0, "conv_sharpe": 0.0,
+           "mean_abs_dy_bps": 0.0}
+    if "5Y" not in df.columns: return out
+
+    # Carry archetype — receive 5Y outright, daily PnL = -d(yield) * 100 (bps)
+    carry_pnl = (-df["5Y"].diff() * 100).reindex(regime_dates).dropna()
+    if len(carry_pnl) > 10 and carry_pnl.std() > 0:
+        out["carry_sharpe"] = float(carry_pnl.mean() / carry_pnl.std() * np.sqrt(252))
+
+    # Convexity archetype — receive 2Y/5Y/10Y belly fly
+    if all(c in df.columns for c in ("2Y", "5Y", "10Y")):
+        fly = 2 * df["5Y"] - df["2Y"] - df["10Y"]
+        conv_pnl = (-fly.diff() * 100).reindex(regime_dates).dropna()
+        if len(conv_pnl) > 10 and conv_pnl.std() > 0:
+            out["conv_sharpe"] = float(conv_pnl.mean() / conv_pnl.std() * np.sqrt(252))
+
+    # Realised vol of 10Y (mean abs daily change in bps)
+    if "10Y" in df.columns:
+        dy = df["10Y"].diff().reindex(regime_dates).dropna() * 100
+        out["mean_abs_dy_bps"] = float(dy.abs().mean()) if len(dy) > 0 else 0.0
+
+    # Classification rule:
+    #   High realised vol (>= 5 bps/day mean abs) AND convexity Sharpe meaningful → Vol/convexity
+    #   Otherwise look at which archetype Sharpe dominates
+    abs_carry = abs(out["carry_sharpe"])
+    abs_conv  = abs(out["conv_sharpe"])
+    vol       = out["mean_abs_dy_bps"]
+
+    if vol >= 5.0 and abs_conv >= 0.5:
+        out["driver"] = "Vol / convexity"
+    elif vol >= 5.0:
+        out["driver"] = "Vol / directional"   # high vol but flies didn't pay
+    elif abs_carry > abs_conv * 1.3:
+        out["driver"] = "Carry / level"
+    elif abs_conv > abs_carry * 1.3:
+        out["driver"] = "Carry / curvature"
+    else:
+        out["driver"] = "Mixed (carry ≈ convexity)"
+    return out
+
+
+driver_info = {i: _regime_driver(i) for i in range(n_clusters)}
+centroids["driver"]          = [driver_info[i]["driver"] for i in range(n_clusters)]
+centroids["carry_sharpe"]    = [driver_info[i]["carry_sharpe"] for i in range(n_clusters)]
+centroids["conv_sharpe"]     = [driver_info[i]["conv_sharpe"]  for i in range(n_clusters)]
+centroids["mean_abs_dy_bps"] = [driver_info[i]["mean_abs_dy_bps"] for i in range(n_clusters)]
+
+
 # ── Current regime ────────────────────────────────────────────────────────
 current_cluster = int(labels.iloc[-1])
 current_label   = centroids.loc[current_cluster, "label"]
 current_centroid = centroids.iloc[current_cluster]
+current_driver   = driver_info[current_cluster]
 
 st.subheader(f"📍 Current regime — cluster {current_cluster}: **{current_label}**")
+
+# Top metric strip
 m1, m2, m3, m4 = st.columns(4)
 m1.metric("10Y level",   f"{feat['level'].iloc[-1]:.2f}%",
           f"{feat['level'].iloc[-1] - current_centroid['level']:+.2f} vs centroid")
@@ -137,17 +196,97 @@ m3.metric("Curvature",   f"{feat['curvature'].iloc[-1]:+.0f} bps",
 m4.metric("Vol z-score", f"{feat['vol'].iloc[-1]:+.2f}",
           f"{feat['vol'].iloc[-1] - current_centroid['vol']:+.2f} vs centroid")
 
+# Driver callout — what's the dominant return source
+driver_color = {
+    "Vol / convexity":  "#a78bfa",
+    "Vol / directional": "#f472b6",
+    "Carry / level":    "#4ade80",
+    "Carry / curvature":"#fbbf24",
+    "Mixed (carry ≈ convexity)": "#94a8c9",
+}.get(current_driver["driver"], "#94a8c9")
+
+st.markdown(
+    f"""
+    <div style='background:#122340;border-left:4px solid {driver_color};
+                padding:14px 18px;border-radius:6px;margin:12px 0 0'>
+      <div style='color:#94a8c9;font-size:11px;letter-spacing:1.5px;
+                  font-weight:700'>RETURN DRIVER</div>
+      <div style='color:{driver_color};font-size:22px;font-weight:700;margin:4px 0'>
+          {current_driver["driver"]}
+      </div>
+      <div style='color:#cbd5e1;font-size:13px;line-height:1.55'>
+          Realised |Δ10Y|: <b>{current_driver["mean_abs_dy_bps"]:.1f} bps/day</b>
+          &nbsp;·&nbsp;
+          Carry-archetype Sharpe (Rcv 5Y): <b>{current_driver["carry_sharpe"]:+.2f}</b>
+          &nbsp;·&nbsp;
+          Convexity-archetype Sharpe (Rcv 2Y/5Y/10Y fly): <b>{current_driver["conv_sharpe"]:+.2f}</b>
+      </div>
+      <div style='color:#6a7e9e;font-size:11px;margin-top:6px'>
+          {"Trade convexity here — flies and wings should outperform outrights." if "Vol / convexity" in current_driver["driver"]
+           else "Vol but flies aren't paying — pick directional outrights with conviction." if "Vol / directional" in current_driver["driver"]
+           else "Carry trade environment — receive level/curve, fade fly noise." if "Carry / level" in current_driver["driver"]
+           else "Curvature carry — belly flies are quietly grinding while outrights are flat." if "Carry / curvature" in current_driver["driver"]
+           else "No clear edge between carry and convexity — size down."}
+      </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
 st.divider()
 
 # ── Regime timeline ───────────────────────────────────────────────────────
 st.subheader("📅 Regime timeline")
 palette = ["#4fc3f7", "#a78bfa", "#fb923c", "#4ade80", "#f472b6"]
 
-fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05,
-                    row_heights=[0.55, 0.45],
-                    subplot_titles=("10Y nominal — coloured by regime",
-                                    "2s10s slope (bps)"))
-# Plot level segmented by regime
+# Map each fine-grained driver to a 3-bucket super-group + chart colour
+DRIVER_GROUP_COLOR = {
+    "Carry":     ("rgba(74,222,128,0.10)",  "#4ade80"),   # green
+    "Convexity": ("rgba(167,139,250,0.12)", "#a78bfa"),   # purple
+    "Mixed":     ("rgba(148,168,201,0.08)", "#94a8c9"),   # grey
+}
+
+def _driver_group(driver_str: str) -> str:
+    if driver_str.startswith("Vol"):   return "Convexity"
+    if driver_str.startswith("Carry"): return "Carry"
+    return "Mixed"
+
+# Per-day driver group, using regime → driver lookup
+day_driver = pd.Series(
+    [_driver_group(driver_info[int(c)]["driver"]) for c in labels.values],
+    index=labels.index,
+    name="driver_group",
+)
+
+# Build contiguous (start, end, group) bands for vrect colouring
+bands: list[tuple] = []
+if len(day_driver) > 0:
+    cur_group = day_driver.iloc[0]
+    cur_start = day_driver.index[0]
+    for i in range(1, len(day_driver)):
+        if day_driver.iloc[i] != cur_group:
+            bands.append((cur_start, day_driver.index[i - 1], cur_group))
+            cur_group = day_driver.iloc[i]
+            cur_start = day_driver.index[i]
+    bands.append((cur_start, day_driver.index[-1], cur_group))
+
+fig = make_subplots(
+    rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.04,
+    row_heights=[0.50, 0.30, 0.20],
+    subplot_titles=("10Y nominal — coloured by regime · background shaded by return driver",
+                    "2s10s slope (bps)",
+                    "Return driver per day"),
+)
+
+# Background bands — apply to ALL rows so the colour shows through
+for start, end, grp in bands:
+    fillcolor, _ = DRIVER_GROUP_COLOR[grp]
+    fig.add_vrect(
+        x0=start, x1=end, fillcolor=fillcolor, line_width=0,
+        layer="below", row="all", col=1,
+    )
+
+# Plot 10Y level segmented by REGIME (row 1)
 for c in range(n_clusters):
     mask = labels == c
     sub  = feat["level"][mask]
@@ -157,27 +296,80 @@ for c in range(n_clusters):
                              showlegend=True),
                   row=1, col=1)
 
+# 2s10s slope line (row 2)
 fig.add_trace(go.Scatter(x=feat.index, y=feat["slope"],
                          line=dict(color="#94a8c9", width=1.5),
-                         showlegend=False),
+                         showlegend=False, name="2s10s"),
               row=2, col=1)
 fig.add_hline(y=0, line_dash="dot", line_color="#6a7e9e", row=2, col=1)
 
-fig.update_layout(template=PLOTLY_THEME, height=560,
-                  margin=dict(l=10, r=10, t=40, b=10),
+# Driver track (row 3) — solid line at +1/+0/-1 depending on driver group
+group_y = {"Carry": 1, "Mixed": 0, "Convexity": -1}
+for grp_name, (fillcolor, line_color) in DRIVER_GROUP_COLOR.items():
+    mask = day_driver == grp_name
+    sub_idx = day_driver.index[mask]
+    if len(sub_idx) == 0: continue
+    fig.add_trace(go.Scatter(
+        x=sub_idx, y=[group_y[grp_name]] * len(sub_idx),
+        mode="markers",
+        marker=dict(size=8, color=line_color, symbol="square"),
+        name=f"{grp_name}-driven",
+        legendgroup="driver", showlegend=True,
+    ), row=3, col=1)
+
+# Force the driver row's y-axis to show all 3 categories
+fig.update_yaxes(
+    tickvals=[1, 0, -1],
+    ticktext=["Carry", "Mixed", "Convexity"],
+    range=[-1.5, 1.5],
+    row=3, col=1,
+)
+
+fig.update_layout(template=PLOTLY_THEME, height=700,
+                  margin=dict(l=10, r=10, t=50, b=10),
                   hovermode="x unified",
                   legend=dict(orientation="h", yanchor="bottom", y=1.06,
                               xanchor="right", x=1, font=dict(size=10)))
 st.plotly_chart(fig, use_container_width=True)
+st.caption(
+    "**Background colour** — green when the dominant return driver in that regime "
+    "was carry, purple when it was vol/convexity. The bottom **driver track** "
+    "shows the per-day classification. Look for the moments the background changes "
+    "colour — those are regime shifts that should change which structures you put on."
+)
 
 # ── Cluster cheat sheet ───────────────────────────────────────────────────
-st.subheader("🧬 Cluster centroids")
+st.subheader("🧬 Cluster centroids — including return driver")
 disp = centroids.copy()
 disp["days_in_regime"]  = [int((labels == i).sum()) for i in range(n_clusters)]
 disp["pct_of_history"]  = (disp["days_in_regime"] / len(labels) * 100).round(1)
 disp["last_seen"]       = [labels[labels == i].index.max().date() if (labels == i).any() else None
                            for i in range(n_clusters)]
-st.dataframe(disp.round(2), use_container_width=True)
+
+# Re-order columns to put driver + Sharpes adjacent to label
+ordered = ["label", "driver", "mean_abs_dy_bps",
+           "carry_sharpe", "conv_sharpe",
+           "level", "slope", "curvature", "vol",
+           "days_in_regime", "pct_of_history", "last_seen"]
+disp = disp[[c for c in ordered if c in disp.columns]]
+
+st.dataframe(
+    disp.round(2),
+    use_container_width=True,
+    column_config={
+        "label":           st.column_config.TextColumn("Centroid label", width="medium"),
+        "driver":          st.column_config.TextColumn("Return driver", width="medium"),
+        "mean_abs_dy_bps": st.column_config.NumberColumn("|Δ10Y| bps/day", format="%.1f"),
+        "carry_sharpe":    st.column_config.NumberColumn("Carry Sharpe (Rcv 5Y)", format="%+.2f"),
+        "conv_sharpe":     st.column_config.NumberColumn("Convexity Sharpe (Fly)", format="%+.2f"),
+    },
+)
+st.caption(
+    "**Return driver** is auto-derived per regime: realised |Δ10Y| ≥ 5 bps/day → "
+    "vol regime (favours convexity / flies); otherwise carry dominates and we "
+    "look at whether outrights (level) or flies (curvature) had better Sharpe. "
+    "Carry-archetype = receive 5Y; convexity-archetype = receive 2Y/5Y/10Y belly fly."
+)
 
 st.divider()
 
