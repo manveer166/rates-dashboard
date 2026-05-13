@@ -148,6 +148,8 @@ for p in picks:
         "Sharpe":     round(s.get("sharpe", 0), 2),
         "Hit rate %": round(s.get("hit_rate", 0), 0),
         "Max DD bps": round(s.get("max_dd", 0), 1),
+        "_raw":        p,   # keep original pick dict for the signal-card view
+        "_summary":    s,
     })
     # Build daily-PnL series labelled by (week_of, name) for stitching
     daily = pnl.diff().fillna(0.0)
@@ -203,9 +205,40 @@ if all_daily:
                       yaxis_title="Cumulative PnL (bps)")
     st.plotly_chart(fig, use_container_width=True)
 
-# ── Per-pick table ───────────────────────────────────────────────────────
-st.subheader("📋 Pick-by-pick")
-disp = picks_df.sort_values("Week of", ascending=False)
+# ── Per-pick cards (most recent first) ───────────────────────────────────
+st.subheader("🃏 Pick-by-pick — signal cards")
+from dashboard.components.signal_card import render_signal_grid
+
+card_payloads = []
+for rec in sorted(records, key=lambda r: r["Week of"], reverse=True):
+    p = rec["_raw"]; s = rec["_summary"]
+    type_label = {"outright": "Outright", "curve": "Curve", "fly": "Fly"}.get(p["type"], "Outright")
+    tenor_str = p.get("tenor") if p["type"] == "outright" else "/".join(p.get("tenors", []))
+    prefix = "Rcv" if p.get("direction", "receive") == "receive" else "Pay"
+    card_payloads.append(dict(
+        trade=f"{prefix} {tenor_str}",
+        type_=type_label,
+        sharpe=float(s.get("sharpe", 0)),
+        z=0.0,   # not part of TotW model
+        expected_return_bps_yr=(s.get("total_bps", 0) * 365 / max(s.get("days", 1), 1)),
+        hit_rate_pct=float(s.get("hit_rate", 0)),
+        max_dd_bps=float(s.get("max_dd", 0)),
+        days=int(s.get("days", 0)),
+        direction=p.get("direction", "receive"),
+        tags=[f"Week of {p.get('week_of', '?')}",
+              f"Status: {p.get('status', 'live')}",
+              f"Entry: {p.get('entry_level', '—')}"],
+        note=(f"PnL <b>{s.get('total_bps', 0):+.1f} bps</b> over {s.get('days', 0)} days. "
+              + (f'<a href="{p["link"]}" target="_blank" style="color:#4fc3f7">Write-up →</a>'
+                 if p.get("link") else "")),
+    ))
+render_signal_grid(card_payloads, n_cols=2, compact=True)
+
+
+# ── Per-pick table — still available for power users ─────────────────────
+st.subheader("📋 Pick-by-pick — full table")
+disp = picks_df.drop(columns=[c for c in ["_raw", "_summary"] if c in picks_df.columns]) \
+                .sort_values("Week of", ascending=False)
 st.dataframe(
     disp, use_container_width=True, hide_index=True,
     column_config={

@@ -80,6 +80,40 @@ if df.empty:
     st.stop()
 
 
+# ── Substack voice connector — pull recent posts for tone matching ────────
+@st.cache_data(ttl=24 * 3600, show_spinner=False)
+def _fetch_recent_substack(limit: int = 10) -> list[dict]:
+    """Pull recent Macro Manv posts via RSS — title + summary + date.
+    Used by the drafter as voice-matching context."""
+    try:
+        import feedparser
+    except ImportError:
+        return []
+    try:
+        f = feedparser.parse("https://manveersahota.substack.com/feed")
+        out = []
+        for e in f.entries[:limit]:
+            out.append({
+                "title":     str(e.get("title", "")).strip(),
+                "published": str(e.get("published", e.get("updated", ""))),
+                "summary":   _strip_html(str(e.get("summary", "")))[:800],
+            })
+        return out
+    except Exception:
+        return []
+
+
+def _strip_html(text: str) -> str:
+    """Crude HTML→text — keeps prose, drops tags / nbsp."""
+    import re
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = text.replace("&nbsp;", " ").replace("&amp;", "&").replace("&#x27;", "'")
+    return re.sub(r"\s+", " ", text).strip()
+
+
+recent_posts = _fetch_recent_substack(limit=10)
+
+
 # ── Build market context (shared by all providers) ───────────────────────
 @st.cache_data(ttl=600, show_spinner=False)
 def _build_context() -> dict:
@@ -278,16 +312,33 @@ def template_draft(ctx: dict, post_type: str, length: str, tone: str,
 
 
 # ── Provider implementations ─────────────────────────────────────────────
-SYSTEM_PROMPT = (
-    "You are 'Macro Manv', a fixed-income trader writing a Substack on rates "
-    "relative-value, curve, and macro themes. Your readers are rates "
-    "professionals — they know what 2s10s, DV01, carry/roll, fly, and z-score "
-    "mean. Don't waste words explaining basics.\n\n"
-    "Voice: punchy, opinionated, evidence-based. Short paragraphs. Use the "
-    "data given to back specific claims. Avoid filler. Avoid 'in conclusion'. "
-    "If the data doesn't support a clean call, say so — don't manufacture "
-    "conviction. Markdown output, no emojis unless the user asks for them."
-)
+def _build_system_prompt(posts: list[dict]) -> str:
+    """System prompt with optional voice samples from recent Substack posts."""
+    base = (
+        "You are 'Macro Manv', a fixed-income trader writing a Substack on rates "
+        "relative-value, curve, and macro themes. Your readers are rates "
+        "professionals — they know what 2s10s, DV01, carry/roll, fly, and z-score "
+        "mean. Don't waste words explaining basics.\n\n"
+        "Voice: punchy, opinionated, evidence-based. Short paragraphs. Use the "
+        "data given to back specific claims. Avoid filler. Avoid 'in conclusion'. "
+        "If the data doesn't support a clean call, say so — don't manufacture "
+        "conviction. Markdown output, no emojis unless the user asks for them."
+    )
+    if not posts:
+        return base
+    # Include the 3 most recent post titles + summaries as voice samples
+    voice = "\n\n=== RECENT SUBSTACK POSTS (your own voice — match this tone) ===\n"
+    for p in posts[:3]:
+        voice += f"\nTITLE: {p['title']}\n"
+        if p.get("summary"):
+            voice += f"OPENING: {p['summary'][:400]}\n"
+    voice += ("\n=== END VOICE SAMPLES ===\n\n"
+              "Match the cadence, sentence length, and willingness to be "
+              "specific with numbers shown above.")
+    return base + voice
+
+
+SYSTEM_PROMPT = _build_system_prompt(recent_posts)
 
 
 def _llm_user_msg(ctx: dict, post_type: str, length: str, tone: str,
@@ -395,6 +446,18 @@ st.divider()
 with st.expander("📊 Market context — same data fed to every drafter mode",
                   expanded=False):
     st.json(ctx, expanded=False)
+
+with st.expander(
+    f"🗣️ Voice samples — {len(recent_posts)} recent Substack posts pulled for tone-matching",
+    expanded=False,
+):
+    if recent_posts:
+        for p in recent_posts[:5]:
+            st.markdown(f"**{p['title']}**  ·  _{p.get('published','')[:16]}_")
+            if p.get("summary"):
+                st.caption(p["summary"][:300] + ("…" if len(p["summary"]) > 300 else ""))
+    else:
+        st.caption("RSS unavailable — drafter will use generic voice.")
 
 st.subheader("Draft a post")
 

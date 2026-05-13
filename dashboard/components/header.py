@@ -23,6 +23,7 @@ CATEGORIES: list[tuple[str, str, list[tuple[str, str, str]]]] = [
         ("Vol Scorecard",   "/Vol_Scorecard",       "🌊"),
         ("Global Inflation","/Global_Inflation",    "🔥"),
         ("Global Macro",    "/Global_Macro",        "🌐"),
+        ("Bond Futures",    "/Bond_Futures",        "📈"),
     ]),
     ("Analytics", "🔬", [
         ("Analysis",            "/Analysis",            "🔍"),
@@ -55,6 +56,7 @@ CATEGORIES: list[tuple[str, str, list[tuple[str, str, str]]]] = [
         ("A/B Tests",          "/AB_Tests",          "🧪"),
         ("CTA Audit",          "/CTA_Audit",         "🔗"),
         ("Subscriber Growth",  "/Subscriber_Growth", "📈"),
+        ("Subscriber Sync",    "/Subscriber_Sync",   "🔄"),
         ("Reader Polls",       "/Reader_Polls",      "🗳️"),
         ("Admin",              "/Admin",             "🛠️"),
         ("Feature Request",    "/Feature_Request",   "💡"),
