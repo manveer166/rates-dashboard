@@ -404,12 +404,6 @@ def main():
     st.subheader("📰 Latest")
     render_news_panel(limit_per_source=5, campaign="home_panel")
 
-    st.write("")  # spacing
-
-    # ── Central banks press releases (Fed · ECB · BoE) ─────────────────────
-    st.subheader("🏛️ Central banks")
-    render_central_banks_panel(limit_per_source=5)
-
     st.divider()
 
     # ── Lookback selector (top of page) ───────────────────────────────────
@@ -622,6 +616,11 @@ def main():
         st.link_button("Subscribe", "https://manveersahota.substack.com/subscribe", use_container_width=True)
     with link_cols[2]:
         st.link_button("Contact", "mailto:ratesteam@macromanv.com", use_container_width=True)
+
+    # ── Central banks press releases (Fed · ECB · BoE) — bottom of page ───
+    st.divider()
+    st.subheader("🏛️ Central banks")
+    render_central_banks_panel(limit_per_source=5)
 
     # ── Tutorial button ────────────────────────────────────────────────────
     st.divider()
