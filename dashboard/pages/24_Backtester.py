@@ -200,13 +200,37 @@ def _trade_name():
 st.subheader(f"📊 {_trade_name()}")
 st.caption(f"{level.index[0].date()} → {level.index[-1].date()}  ·  {days} trading days")
 
+# Headline metric strip (kept for at-a-glance scanning)
 m1, m2, m3, m4, m5, m6 = st.columns(6)
-m1.metric("Total PnL",   f"{total_bps:+.0f} bps")
-m2.metric("Annualised",  f"{ann_bps:+.0f} bps")
-m3.metric("Sharpe",      f"{sharpe:+.2f}")
-m4.metric("Hit rate",    f"{positive:.0f}%")
-m5.metric("Max DD",      f"{max_dd:.0f} bps")
-m6.metric("Vol (ann)",   f"{vol_bps:.0f} bps")
+m1.metric("Total PnL (bps)",      f"{total_bps:+.0f}")
+m2.metric("Annualised (bps/yr)",  f"{ann_bps:+.0f}")
+m3.metric("Sharpe",               f"{sharpe:+.2f}")
+m4.metric("Hit rate (%)",         f"{positive:.0f}")
+m5.metric("Max DD (bps)",         f"{max_dd:.0f}")
+m6.metric("Vol (bps/yr)",         f"{vol_bps:.0f}")
+
+# Branded signal card — same visual language as Scanner / Regime
+from dashboard.components.signal_card import render_signal_card, render_units_legend
+
+# Approximate Z by the level vs its full-window mean
+_z = float((level.iloc[-1] - level.mean()) / level.std()) if level.std() > 0 else 0.0
+render_signal_card(
+    trade=("Rcv " if direction == "receive" else "Pay ") + "/".join(tenors),
+    type_=trade_type,
+    sharpe=sharpe,
+    z=_z,
+    expected_return_bps_yr=ann_bps,
+    risk_bps_yr=vol_bps,
+    hit_rate_pct=positive,
+    max_dd_bps=max_dd,
+    days=days,
+    direction=direction,
+    note=(f"Backtest window: {level.index[0].date()} → {level.index[-1].date()}. "
+          f"PnL = level-change × direction (no carry/roll, no transaction costs). "
+          f"For carry-aware E[Ret], see the Trade Decomposition page."),
+)
+with st.expander("Units key"):
+    render_units_legend()
 
 st.divider()
 

@@ -567,29 +567,39 @@ hm.update_layout(template=PLOTLY_THEME,
                   yaxis=dict(autorange="reversed"))
 st.plotly_chart(hm, use_container_width=True)
 
-# ── 3. Best 3 trades in current regime — quick-pick callout ──────────────
+# ── 3. Best 3 trades in current regime — signal cards ────────────────────
 if matrix:
     st.markdown("**⚡ Quick pick — top 3 in current regime**")
+    from dashboard.components.signal_card import (
+        render_signal_grid, render_units_legend,
+    )
     top3 = sorted(matrix, key=lambda r: -r["Sharpe"])[:3]
-    cols = st.columns(3)
-    for i, t in enumerate(top3):
-        sign_col = "#4ade80" if t["Sharpe (signed)"] > 0 else "#f87171"
-        with cols[i]:
-            st.markdown(
-                f"""
-                <div style='background:#122340;border-left:3px solid {sign_col};
-                            border-radius:6px;padding:12px 14px;'>
-                <div style='color:#94a8c9;font-size:11px;letter-spacing:1px;
-                            font-weight:700'>{t['Direction'].upper()}</div>
-                <div style='color:#e8eef9;font-size:18px;font-weight:700;
-                            margin:4px 0 6px'>{t['Trade']}</div>
-                <div style='color:{sign_col};font-size:14px;font-weight:700'>
-                    Sharpe {t['Sharpe (signed)']:+.2f}  ·  PnL {t['Ann PnL (bps)']:+.0f} bps/yr
-                </div>
-                <div style='color:#6a7e9e;font-size:11px;margin-top:6px'>
-                    Hit rate {t['Hit rate %']:.0f}%  ·  Vol {t['Vol (bps)']:.0f} bps  ·  N = {t['Days']} days
-                </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+    # Resolve each row back to a structure type for the card
+    # (matrix entries from the conditional Sharpe section already include
+    # Direction, Sharpe (signed), Ann PnL (bps), Hit rate %, Days, Vol)
+    cards = []
+    for t in top3:
+        # Find the trade's type from the universe so the badge is accurate
+        t_type = t.get("Type", "Outright")
+        # Find Z from the within-regime z-score table if available
+        z_val = 0.0
+        for r in rows if "rows" in dir() else []:
+            if isinstance(r, dict) and r.get("Spread", "").replace("/", "") in t["Trade"].replace("/", ""):
+                z_val = float(str(r.get("Z (in regime)", "0")).replace("+", ""))
+                break
+        cards.append(dict(
+            trade=t["Trade"],
+            type_=t_type,
+            sharpe=float(t["Sharpe (signed)"]),
+            z=z_val,
+            expected_return_bps_yr=float(t["Ann PnL (bps)"]),
+            risk_bps_yr=float(t["Vol (bps)"]),
+            hit_rate_pct=float(t["Hit rate %"]),
+            max_dd_bps=float(t.get("Max DD (bps)", 0)),
+            days=int(t["Days"]),
+            direction=t["Direction"].lower(),
+        ))
+    render_signal_grid(cards, n_cols=3, compact=True)
+
+    with st.expander("Units key"):
+        render_units_legend()
