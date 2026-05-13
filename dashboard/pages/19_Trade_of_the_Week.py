@@ -99,29 +99,59 @@ if entries:
     latest = entries[0]
     st.subheader(f"📌 This week — {latest.get('week_of', '')}")
 
-    cols = st.columns([3, 1])
-    with cols[0]:
-        direction = latest.get("direction", "receive").capitalize()
-        if latest["type"] == "outright":
-            tname = f"{direction} {latest['tenor']}"
-        elif latest["type"] == "curve":
-            tname = f"{direction} {'/'.join(latest['tenors'])} curve"
-        else:
-            tname = f"{direction} {''.join(latest['tenors'])} fly"
-        st.markdown(f"### {tname}")
-        st.markdown(f"**Thesis:** {latest.get('thesis', '—')}")
-        if latest.get("link"):
-            st.markdown(f"[Read the full write-up →]({latest['link']})")
+    # Compute live PnL + days held for the hero card
+    pnl = _pnl_bps(latest, df)
+    entry_date = pd.Timestamp(latest.get("entry_date") or latest.get("week_of"))
+    days_held = (pd.Timestamp(date.today()) - entry_date).days
 
-    with cols[1]:
-        pnl = _pnl_bps(latest, df)
-        if pnl is None:
-            st.metric("Live PnL", "—")
-        else:
-            st.metric("Live PnL", f"{pnl:+.1f} bps",
-                      delta=f"vs {latest.get('entry_level','—')}")
-        st.caption(f"Entry: {latest.get('entry_date', '—')}")
+    # Card-ready trade name
+    if latest["type"] == "outright":
+        trade_str = f"Rcv {latest['tenor']}" if latest.get("direction", "receive") == "receive" \
+                    else f"Pay {latest['tenor']}"
+        type_label = "Outright"
+    elif latest["type"] == "curve":
+        prefix = "Rcv" if latest.get("direction", "receive") == "receive" else "Pay"
+        trade_str = f"{prefix} {'/'.join(latest['tenors'])}"
+        type_label = "Curve"
+    else:
+        prefix = "Rcv" if latest.get("direction", "receive") == "receive" else "Pay"
+        trade_str = f"{prefix} {'/'.join(latest['tenors'])}"
+        type_label = "Fly"
 
+    # Hero signal card
+    from dashboard.components.signal_card import (
+        render_signal_card, render_units_legend,
+    )
+    note = latest.get("thesis", "")
+    if latest.get("link"):
+        note += f'<br><a href="{latest["link"]}" target="_blank" '\
+                f'style="color:#4fc3f7;font-weight:600;text-decoration:none">'\
+                f'Read the full write-up →</a>'
+
+    render_signal_card(
+        trade=trade_str,
+        type_=type_label,
+        sharpe=0.0,   # not part of the TotW model — left blank in the card
+        z=0.0,
+        expected_return_bps_yr=(pnl * 365 / max(days_held, 1)) if pnl is not None else None,
+        d1w_bps=pnl if pnl is not None and days_held <= 7 else None,
+        days=days_held,
+        direction=latest.get("direction", "receive"),
+        tags=["Trade of the Week", f"Entry {latest.get('entry_date','—')}",
+              f"Status {latest.get('status','live')}"],
+        note=note or None,
+    )
+
+    # Live PnL stand-out metric (still useful at-a-glance above the chart)
+    mc1, mc2, mc3 = st.columns(3)
+    mc1.metric("Live PnL (bps)", f"{pnl:+.1f}" if pnl is not None else "—",
+                delta=f"vs entry {latest.get('entry_level','—')}")
+    mc2.metric("Days held", days_held)
+    mc3.metric("Annualised PnL (bps/yr)",
+                f"{(pnl * 365 / max(days_held, 1)):+.0f}" if pnl is not None and days_held > 0 else "—")
+
+    with st.expander("Units key"):
+        render_units_legend()
     st.divider()
 
     if len(entries) > 1:

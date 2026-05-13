@@ -389,6 +389,29 @@ if section.startswith("0"):
 
         if not result.empty:
             result = result.sort_values("Sharpe", ascending=False, na_position="last").reset_index(drop=True)
+
+            # ── Top 5 as signal cards — at-a-glance read above the full table ──
+            from dashboard.components.signal_card import (
+                render_signal_grid, render_units_legend,
+            )
+            st.markdown("**🎯 Top 5 by Sharpe**")
+            top5_cards = []
+            for _, r in result.head(5).iterrows():
+                struct_type = r.get("Type", "Outright").replace("*", "")  # strip beta marker
+                top5_cards.append(dict(
+                    trade=r["Trade"],
+                    type_=struct_type,
+                    sharpe=float(r["Sharpe"]) if pd.notna(r.get("Sharpe")) else 0.0,
+                    z=float(r["Z"]) if pd.notna(r.get("Z")) else 0.0,
+                    expected_return_bps_yr=float(r["E[Ret]"]) if pd.notna(r.get("E[Ret]")) else None,
+                    risk_bps_yr=float(r["Risk"]) if pd.notna(r.get("Risk")) else None,
+                    d1w_bps=float(r["Δ1W"]) if pd.notna(r.get("Δ1W")) else None,
+                ))
+            render_signal_grid(top5_cards, n_cols=5, compact=True)
+            with st.expander("Units key"):
+                render_units_legend()
+            st.divider()
+
             sc1, sc2 = st.columns([3, 1])
             with sc1:
                 sort_col = st.selectbox("Sort by", [c for c in result.columns if c != "Type"],
