@@ -15,6 +15,8 @@ import streamlit as st
 CATEGORIES: list[tuple[str, str, list[tuple[str, str, str]]]] = [
     ("Markets", "📈", [
         ("Morning Briefing","/Morning",             "🌅"),
+        ("What Changed",    "/What_Changed",        "🆕"),
+        ("Watchlist",       "/Watchlist",           "📌"),
         ("Yield Curve",     "/Yield_Curve",         "📉"),
         ("Global Curves",   "/Global_Curves",       "🌍"),
         ("Spreads",         "/Spreads",             "📊"),
