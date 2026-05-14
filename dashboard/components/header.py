@@ -14,6 +14,7 @@ import streamlit as st
 # truth — to add a page, drop it into the right category and you're done.
 CATEGORIES: list[tuple[str, str, list[tuple[str, str, str]]]] = [
     ("Markets", "📈", [
+        ("Morning Briefing","/Morning",             "🌅"),
         ("Yield Curve",     "/Yield_Curve",         "📉"),
         ("Global Curves",   "/Global_Curves",       "🌍"),
         ("Spreads",         "/Spreads",             "📊"),

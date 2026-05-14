@@ -50,6 +50,8 @@ PAGE_INDEX: list[tuple[str, str, str, list[str]]] = [
     ("Auctions",        "/Auction_Tracker",   "🏛️", ["auction", "treasury", "bid to cover", "indirect", "tail", "primary dealer", "ust"]),
     ("Trade Decomposition", "/Trade_Decomposition", "🧩",
         ["decompose", "decomposition", "carry", "rolldown", "roll", "mean reversion", "waterfall", "expected return"]),
+    ("Morning Briefing","/Morning",           "🌅",
+        ["morning", "briefing", "daily", "today", "start of day", "summary", "overview"]),
     ("Bond Futures",    "/Bond_Futures",      "📈",
         ["futures", "cme", "zn", "zb", "zf", "zt", "tn", "ub", "nob", "fyt", "bond future"]),
     ("Subscriber Sync", "/Subscriber_Sync",   "🔄",

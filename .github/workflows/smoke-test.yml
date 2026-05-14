@@ -80,3 +80,8 @@ jobs:
           )
           print('openbb_data wrapper imports OK')
           "
+
+      - name: Run pytest
+        run: |
+          pip install pytest
+          pytest tests/ -v --tb=short
