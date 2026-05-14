@@ -19,6 +19,10 @@ init_session_state()
 render_sidebar_controls()
 render_page_header(current="Correlation")
 
+from dashboard.components.premium_gate import premium_gate
+if not premium_gate("Correlation"):
+    st.stop()
+
 st.title("🔗 Correlation Matrix")
 st.markdown(
     "Cross-asset correlation heatmap for rates, spreads, and macro variables. "

@@ -36,6 +36,10 @@ init_session_state()
 render_sidebar_controls()
 render_page_header(current="Analysis")
 
+from dashboard.components.premium_gate import premium_gate
+if not premium_gate("Analysis"):
+    st.stop()
+
 # ── Lazy import: only load fixed_income when this page is visited ──────────
 @st.cache_resource
 def _load_fi():

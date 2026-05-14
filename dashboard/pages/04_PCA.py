@@ -20,6 +20,10 @@ init_session_state()
 render_sidebar_controls()
 render_page_header(current="PCA")
 
+from dashboard.components.premium_gate import premium_gate
+if not premium_gate("PCA"):
+    st.stop()
+
 st.title("🧮 PCA — Yield Curve Decomposition")
 st.markdown(
     "Principal Component Analysis decomposes yield curve moves into:\n"

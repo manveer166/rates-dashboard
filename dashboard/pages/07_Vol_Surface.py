@@ -26,6 +26,10 @@ init_session_state()
 render_sidebar_controls()
 render_page_header(current="Vol Surface")
 
+from dashboard.components.premium_gate import premium_gate
+if not premium_gate("Vol Surface"):
+    st.stop()
+
 st.title("🌊 Volatility Surface (Realised Vol Proxy)")
 st.caption("Synthetic surface built from realised vols at different rolling windows. Not market-implied — connect live swaption data for true implied vol.")
 

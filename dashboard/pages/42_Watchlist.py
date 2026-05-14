@@ -33,6 +33,10 @@ init_session_state()
 render_sidebar_controls()
 render_page_header(current="Watchlist")
 
+from dashboard.components.premium_gate import premium_gate
+if not premium_gate("Watchlist"):
+    st.stop()
+
 st.title("📌 Watchlist")
 st.caption(
     "Pinned trades with live PnL since pin. Drop a trade in below or use "

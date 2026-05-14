@@ -19,6 +19,10 @@ init_session_state()
 render_sidebar_controls()
 render_page_header(current="Regression")
 
+from dashboard.components.premium_gate import premium_gate
+if not premium_gate("Regression"):
+    st.stop()
+
 st.title("🔬 Regression Analysis")
 st.markdown("OLS and rolling regression between rates, spreads, and macro variables.")
 st.divider()

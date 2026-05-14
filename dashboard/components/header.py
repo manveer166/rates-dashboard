@@ -66,6 +66,7 @@ CATEGORIES: list[tuple[str, str, list[tuple[str, str, str]]]] = [
         ("Feature Request",    "/Feature_Request",   "💡"),
     ]),
     ("Help", "📚", [
+        ("Pricing",      "/Pricing",      "💎"),
         ("Data Sources", "/Data_Sources", "📡"),
         ("Glossary",     "/Glossary",     "📖"),
         ("User Guide",   "/User_Guide",   "📘"),

@@ -61,6 +61,10 @@ init_session_state()
 render_sidebar_controls()
 render_page_header(current="CTA Positioning")
 
+from dashboard.components.premium_gate import premium_gate
+if not premium_gate("CTA Positioning"):
+    st.stop()
+
 # ── Model constants ───────────────────────────────────────────────────────────
 CTA_TOTAL_BN      = 300     # assumed CTA AUM ($bn) — anchors all flow numbers
 CTA_MAX_BN        = 80      # max per-market allocation ($bn)

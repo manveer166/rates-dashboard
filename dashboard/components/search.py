@@ -58,6 +58,8 @@ PAGE_INDEX: list[tuple[str, str, str, list[str]]] = [
         ["watchlist", "pin", "pinned", "track", "saved"]),
     ("PCA Backtest",    "/PCA_Backtest",      "🧮",
         ["pca", "backtest", "principal component", "level", "slope", "curvature", "mean reversion"]),
+    ("Pricing",         "/Pricing",           "💎",
+        ["pricing", "tiers", "free", "premium", "pro", "upgrade", "subscribe"]),
     ("Bond Futures",    "/Bond_Futures",      "📈",
         ["futures", "cme", "zn", "zb", "zf", "zt", "tn", "ub", "nob", "fyt", "bond future"]),
     ("Subscriber Sync", "/Subscriber_Sync",   "🔄",

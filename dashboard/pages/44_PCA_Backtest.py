@@ -46,6 +46,10 @@ init_session_state()
 render_sidebar_controls()
 render_page_header(current="PCA Backtest")
 
+from dashboard.components.premium_gate import premium_gate
+if not premium_gate("PCA Backtest"):
+    st.stop()
+
 st.title("🧮 Curve PCA Backtest")
 st.caption(
     "How well does mean-reversion on curve principal components actually work? "
