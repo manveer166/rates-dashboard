@@ -127,6 +127,45 @@ if not pins:
             "button on the Scanner (when wired).")
     st.stop()
 
+# ── Pre-pass: compute alerts (Z extremes, sizeable PnL, age) ────────────
+alerts = []
+for p in pins:
+    tenors = _tenors_from_trade(p["trade"])
+    hist = _level_history(df, p["type_"], tenors)
+    if hist.empty: continue
+    pin_date = pd.Timestamp(p["pinned_at"])
+    since = hist.loc[pin_date:] if pin_date <= hist.index.max() else hist.tail(1)
+    current = float(since.iloc[-1]) if not since.empty else None
+    if current is None: continue
+    sign = -1.0 if p["direction"] == "receive" else 1.0
+    pnl = sign * (current - p["pinned_level"]) * 100
+    days_held = (pd.Timestamp(date.today()) - pin_date).days
+
+    # 1Y Z-score on the level
+    lvl_1y = hist.tail(252)
+    z = 0.0
+    if len(lvl_1y) >= 60 and lvl_1y.std() > 0:
+        z = float((current - lvl_1y.mean()) / lvl_1y.std())
+
+    if abs(z) >= 2:
+        alerts.append(("🚨", f"**{p['trade']}** is at Z = {z:+.2f} "
+                              f"({'cheap' if z < 0 else 'rich'}) — {'add' if (z < 0) == (p['direction']=='receive') else 'consider trimming'}"))
+    elif abs(pnl) >= 30:
+        emoji = "🟢" if pnl > 0 else "🔴"
+        alerts.append((emoji, f"**{p['trade']}**: PnL **{pnl:+.0f} bps** "
+                               f"over {days_held} days — "
+                               f"{'consider taking profit' if pnl > 0 else 'review your stop'}"))
+    elif days_held >= 30 and abs(pnl) < 5:
+        alerts.append(("⏰", f"**{p['trade']}** has been pinned **{days_held} days** "
+                              f"with PnL **{pnl:+.0f} bps** — is the thesis still active?"))
+
+if alerts:
+    st.markdown("**🔔 Watchlist alerts**")
+    for emoji, msg in alerts:
+        st.markdown(f"{emoji} {msg}", unsafe_allow_html=True)
+    st.divider()
+
+
 st.subheader(f"📊 {len(pins)} pinned trade{'s' if len(pins) != 1 else ''}")
 
 for p in sorted(pins, key=lambda x: x.get("pinned_at", ""), reverse=True):

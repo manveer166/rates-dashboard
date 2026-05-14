@@ -394,9 +394,11 @@ if section.startswith("0"):
             from dashboard.components.signal_card import (
                 render_signal_grid, render_units_legend,
             )
+            from dashboard.components.watchlist import pin_trade, list_pins
             st.markdown("**🎯 Top 5 by Sharpe**")
             top5_cards = []
-            for _, r in result.head(5).iterrows():
+            top5_rows = list(result.head(5).iterrows())
+            for _, r in top5_rows:
                 struct_type = r.get("Type", "Outright").replace("*", "")  # strip beta marker
                 top5_cards.append(dict(
                     trade=r["Trade"],
@@ -408,8 +410,70 @@ if section.startswith("0"):
                     d1w_bps=float(r["Δ1W"]) if pd.notna(r.get("Δ1W")) else None,
                 ))
             render_signal_grid(top5_cards, n_cols=5, compact=True)
+
+            # ── Pin-to-watchlist row underneath the cards ──
+            existing_trades = {p["trade"] for p in list_pins()}
+            pin_cols = st.columns(5)
+            for idx, (_, r) in enumerate(top5_rows):
+                with pin_cols[idx]:
+                    struct_type = r.get("Type", "Outright").replace("*", "")
+                    already = r["Trade"] in existing_trades
+                    label = "📌 Pinned" if already else "📌 Pin"
+                    if st.button(label, key=f"sc_pin_{idx}",
+                                  use_container_width=True,
+                                  disabled=already):
+                        # Extract level from the row's Level column if present
+                        lvl = float(r.get("Level", 0)) if pd.notna(r.get("Level")) else 0.0
+                        direction = "receive" if "Rcv" in str(r["Trade"]) else "pay"
+                        pin_trade(r["Trade"], struct_type, direction, lvl,
+                                   note=f"Pinned from Scanner top {idx+1}")
+                        st.toast(f"Pinned {r['Trade']}", icon="📌")
+                        st.rerun()
+            st.caption(
+                "Pin any of the top 5 to your **Watchlist** — they'll be tracked "
+                "with live PnL since pin time."
+            )
+
             with st.expander("Units key"):
                 render_units_legend()
+
+            # ── Correlation cluster check on top 10 ──
+            try:
+                top_n_check = min(10, len(result))
+                top10 = result.head(top_n_check)
+                # Build a simple identity hash per trade to detect overlap
+                # Two trades are "redundant" if they share 2+ tenors AND the same Type
+                import re
+                def _tenors(t): return set(re.findall(r"\d+[MY]", str(t)))
+                clusters = []
+                for _, r in top10.iterrows():
+                    ts = _tenors(r["Trade"])
+                    t_type = r.get("Type", "Outright").replace("*", "")
+                    placed = False
+                    for cl in clusters:
+                        # Same type + share ≥2 tenors → same cluster
+                        if cl["type"] == t_type and len(cl["tenors"] & ts) >= 2:
+                            cl["members"].append(r["Trade"])
+                            cl["tenors"] |= ts
+                            placed = True
+                            break
+                    if not placed:
+                        clusters.append({"type": t_type, "tenors": set(ts),
+                                          "members": [r["Trade"]]})
+
+                if any(len(c["members"]) > 1 for c in clusters):
+                    st.markdown("**🔗 Top trades may be redundant**")
+                    for c in clusters:
+                        if len(c["members"]) > 1:
+                            st.caption(
+                                f"🔗 **{c['type']} cluster on {sorted(c['tenors'])}**: "
+                                + ", ".join(c["members"][:5])
+                                + ". These share tenors — treat as one position "
+                                "for sizing."
+                            )
+            except Exception:
+                pass
+
             st.divider()
 
             sc1, sc2 = st.columns([3, 1])
