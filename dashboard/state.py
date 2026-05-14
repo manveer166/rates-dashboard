@@ -457,3 +457,38 @@ def cache_age_str() -> str:
     h, m = divmod(int(age.total_seconds()), 3600)
     m //= 60
     return f"{h}h {m}m ago" if h > 0 else f"{m}m ago"
+
+
+def cache_age_hours() -> float:
+    """Cache age in hours (or large number if missing)."""
+    master = CACHE_DIR / "master.parquet"
+    if not master.exists():
+        return 9_999.0
+    age = datetime.now() - datetime.fromtimestamp(master.stat().st_mtime)
+    return age.total_seconds() / 3600
+
+
+def render_cache_freshness_banner(stale_hours: float = 24.0) -> None:
+    """If the master cache is older than `stale_hours`, render a prominent
+    refresh banner. Admin gets an inline button; viewers see a hint."""
+    h = cache_age_hours()
+    if h < stale_hours:
+        return
+    age = cache_age_str()
+    if is_admin():
+        c1, c2 = st.columns([4, 1])
+        with c1:
+            st.warning(
+                f"⚠️ **Market data is {age}** — older than {int(stale_hours)}h. "
+                "Click refresh to pull fresh prices from Treasury/FRED/ECB."
+            )
+        with c2:
+            if st.button("🔄 Refresh now", type="primary",
+                          use_container_width=True, key="cache_freshness_btn"):
+                refresh_data()
+    else:
+        st.info(
+            f"📅 Data shown is from {age}. Admin will refresh shortly. "
+            "Numbers are still indicative.",
+            icon="ℹ️",
+        )

@@ -63,26 +63,30 @@ def _last(col):
 
 # ── Top metric strip ──────────────────────────────────────────────────────
 st.subheader("📍 Snapshot")
-m1, m2, m3, m4, m5 = st.columns(5)
-specs = [
-    ("VIX",    "VIX",    "Equity vol",  "{:.1f}", "1m"),
-    ("IG_OAS", "IG OAS", "IG credit",   "{:.2f}%", "1m bps"),
-    ("HY_OAS", "HY OAS", "HY credit",   "{:.2f}%", "1m bps"),
-    ("10Y",    "10Y UST", "Rates",      "{:.2f}%", "1m bps"),
-    ("2Y",     "2Y UST",  "Front end",  "{:.2f}%", "1m bps"),
+from dashboard.components.signal_card import render_market_kpi_row
+ca_specs = [
+    ("VIX",    "VIX",    "{:.1f}",  "vol pts",         "1m",        "#f87171"),
+    ("IG_OAS", "IG OAS", "{:.2f}%", "% (annualised)",  "1m bps",    "#4fc3f7"),
+    ("HY_OAS", "HY OAS", "{:.2f}%", "% (annualised)",  "1m bps",    "#fb923c"),
+    ("10Y",    "10Y UST","{:.2f}%", "% (annualised)",  "1m bps",    "#a78bfa"),
+    ("2Y",     "2Y UST", "{:.2f}%", "% (annualised)",  "1m bps",    "#fbbf24"),
 ]
-for col, name, _, fmt, lbl in specs:
+ca_items = []
+for col, name, fmt, unit, lbl, color in ca_specs:
     val = _last(col)
-    d = _delta_bps(col) if "bps" in lbl else (
-        (df[col].dropna().iloc[-1] - df[col].dropna().iloc[-22])
-        if col == "VIX" and col in df.columns and len(df[col].dropna()) > 22 else None
-    )
-    container = [m1, m2, m3, m4, m5][specs.index((col, name, _, fmt, lbl))]
     if val is None:
-        container.metric(name, "—")
+        ca_items.append({"label": name, "value": "—", "unit": unit, "color": color})
+        continue
+    if "bps" in lbl:
+        d = _delta_bps(col)
+        d_str = f"{d:+.0f} bps (1m)" if d is not None else None
     else:
-        delta_str = (f"{d:+.0f} {lbl}" if d is not None else None)
-        container.metric(name, fmt.format(val), delta_str)
+        s = df[col].dropna()
+        d = float(s.iloc[-1] - s.iloc[-22]) if len(s) > 22 else None
+        d_str = f"{d:+.1f} (1m)" if d is not None else None
+    ca_items.append({"label": name, "value": fmt.format(val),
+                      "unit": unit, "delta": d_str, "color": color})
+render_market_kpi_row(ca_items)
 
 st.divider()
 

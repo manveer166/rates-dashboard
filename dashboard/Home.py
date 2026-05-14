@@ -397,6 +397,10 @@ def main():
         unsafe_allow_html=True,
     )
 
+    # ── Stale-cache banner (admin sees refresh button) ─────────────────────
+    from dashboard.state import render_cache_freshness_banner
+    render_cache_freshness_banner(stale_hours=24)
+
     # ── Latest from Macro Manv + Bloomberg + FT (3-col RSS) ────────────────
     from dashboard.components.news import (
         render_news_panel, render_central_banks_panel,

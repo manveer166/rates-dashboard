@@ -32,6 +32,7 @@ CATEGORIES: list[tuple[str, str, list[tuple[str, str, str]]]] = [
         ("Analysis",            "/Analysis",            "🔍"),
         ("Regression",          "/Regression",          "📐"),
         ("PCA",                 "/PCA",                 "🧮"),
+        ("PCA Backtest",        "/PCA_Backtest",        "🧮"),
         ("Correlation",         "/Correlation",         "🔗"),
         ("Vol Surface",         "/Vol_Surface",         "🌊"),
         ("Regime",              "/Regime",              "🧭"),

@@ -198,6 +198,60 @@ def render_signal_grid(cards: list[dict], n_cols: int = 3,
                 render_signal_card(compact=compact, **card)
 
 
+# ── Branded market KPI cards (data pages, not trade ideas) ──────────────
+
+def render_market_kpi_row(items: list[dict]) -> None:
+    """Render a row of branded mini-cards for market metrics (yields, FX,
+    credit, vol, etc.). Same visual language as signal cards but without
+    trade-specific fields.
+
+    Each item:
+        {
+            "label":   "10Y UST",
+            "value":   "4.31%",
+            "unit":    "% (annualised)",   # explicit units string
+            "delta":   "+3 bps (1w)",      # optional, shown smaller
+            "color":   "#4fc3f7",          # optional border / accent
+            "hint":    "Cash 10Y",         # optional tooltip-style caption
+        }
+    """
+    if not items:
+        return
+    cols = st.columns(len(items))
+    for col, it in zip(cols, items):
+        color = it.get("color", "#4fc3f7")
+        delta_html = ""
+        if it.get("delta"):
+            delta_color = "#4ade80" if it["delta"].startswith("+") else \
+                           "#f87171" if it["delta"].startswith("-") else "#94a8c9"
+            delta_html = (f'<div style="color:{delta_color};font-size:11.5px;'
+                           f'margin-top:4px;font-weight:600">{it["delta"]}</div>')
+        hint_html = (f'<div style="color:#6a7e9e;font-size:10.5px;'
+                      f'margin-top:6px">{it["hint"]}</div>' if it.get("hint") else "")
+        unit_html = (f'<span style="color:#94a8c9;font-size:10.5px;'
+                      f'letter-spacing:0.5px;font-weight:500;'
+                      f'margin-left:4px">{it["unit"]}</span>'
+                      if it.get("unit") else "")
+        with col:
+            st.markdown(
+                f"""
+                <div style='background:#122340;border-left:3px solid {color};
+                            border-radius:6px;padding:10px 14px;
+                            margin:4px 0;height:100%;'>
+                  <div style='color:#94a8c9;font-size:10.5px;letter-spacing:1px;
+                              font-weight:700;text-transform:uppercase'>
+                      {it["label"]}{unit_html}
+                  </div>
+                  <div style='color:#e8eef9;font-size:22px;font-weight:700;
+                              margin-top:6px;line-height:1.1'>{it["value"]}</div>
+                  {delta_html}
+                  {hint_html}
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+
 # ── Legend (drop somewhere on a page that uses cards) ────────────────────
 
 def render_units_legend() -> None:

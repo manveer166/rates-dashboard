@@ -50,27 +50,39 @@ implied_10y = (df["10Y"] - df["TIPS_10Y"]) if "10Y" in COLS else None
 # ── Snapshot ──────────────────────────────────────────────────────────────
 last = df.dropna(subset=list(COLS.values()), how="all").iloc[-1]
 
-c1, c2, c3, c4 = st.columns(4)
 def _delta(col):
     s = df[col].dropna()
     if len(s) >= 22:
         return float(s.iloc[-1] - s.iloc[-22]) * 100  # bps over ~1m
     return None
 
-with c1:
-    st.metric("10Y Real (TIPS)", f"{last['TIPS_10Y']:.2f}%",
-              f"{_delta('TIPS_10Y'):+.0f} bps (1m)" if _delta("TIPS_10Y") is not None else None)
-with c2:
-    st.metric("5Y Breakeven", f"{last['BREAKEVEN_5Y']:.2f}%" if "BREAKEVEN_5Y" in COLS else "—",
-              f"{_delta('BREAKEVEN_5Y'):+.0f} bps (1m)" if "BREAKEVEN_5Y" in COLS else None)
-with c3:
-    st.metric("10Y Breakeven", f"{last['BREAKEVEN_10Y']:.2f}%" if "BREAKEVEN_10Y" in COLS else "—",
-              f"{_delta('BREAKEVEN_10Y'):+.0f} bps (1m)" if "BREAKEVEN_10Y" in COLS else None)
-with c4:
-    if "10Y" in COLS:
-        nom = float(last["10Y"])
-        st.metric("10Y Nominal", f"{nom:.2f}%",
-                  f"{_delta('10Y'):+.0f} bps (1m)" if _delta("10Y") is not None else None)
+from dashboard.components.signal_card import render_market_kpi_row
+items = []
+if "TIPS_10Y" in COLS:
+    d = _delta("TIPS_10Y")
+    items.append({"label": "10Y Real (TIPS)", "value": f"{last['TIPS_10Y']:.2f}%",
+                  "unit": "% (annualised)",
+                  "delta": f"{d:+.0f} bps (1m)" if d is not None else None,
+                  "color": "#4fc3f7"})
+if "BREAKEVEN_5Y" in COLS:
+    d = _delta("BREAKEVEN_5Y")
+    items.append({"label": "5Y Breakeven", "value": f"{last['BREAKEVEN_5Y']:.2f}%",
+                  "unit": "% YoY",
+                  "delta": f"{d:+.0f} bps (1m)" if d is not None else None,
+                  "color": "#fbbf24"})
+if "BREAKEVEN_10Y" in COLS:
+    d = _delta("BREAKEVEN_10Y")
+    items.append({"label": "10Y Breakeven", "value": f"{last['BREAKEVEN_10Y']:.2f}%",
+                  "unit": "% YoY",
+                  "delta": f"{d:+.0f} bps (1m)" if d is not None else None,
+                  "color": "#fb923c"})
+if "10Y" in COLS:
+    d = _delta("10Y")
+    items.append({"label": "10Y Nominal", "value": f"{float(last['10Y']):.2f}%",
+                  "unit": "% (annualised)",
+                  "delta": f"{d:+.0f} bps (1m)" if d is not None else None,
+                  "color": "#a78bfa"})
+render_market_kpi_row(items)
 
 st.divider()
 

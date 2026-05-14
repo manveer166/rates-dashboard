@@ -67,30 +67,29 @@ if fx.empty:
 
 # ── Snapshot ──────────────────────────────────────────────────────────────
 last = fx.dropna(how="all").iloc[-1]
-m1, m2, m3, m4 = st.columns(4)
-
 def _delta(col, days=22):
     if col not in fx.columns: return None
     s = fx[col].dropna()
     if len(s) < days + 1: return None
     return float((s.iloc[-1] / s.iloc[-days - 1] - 1) * 100)
 
-with m1:
-    if "USD_EUR" in fx.columns:
-        st.metric("EUR/USD", f"{last['USD_EUR']:.4f}",
-                  f"{_delta('USD_EUR'):+.2f}% (1m)" if _delta('USD_EUR') is not None else None)
-with m2:
-    if "JPY_USD" in fx.columns:
-        st.metric("USD/JPY", f"{last['JPY_USD']:.2f}",
-                  f"{_delta('JPY_USD'):+.2f}% (1m)" if _delta('JPY_USD') is not None else None)
-with m3:
-    if "GBP_USD" in fx.columns:
-        st.metric("GBP/USD", f"{last['GBP_USD']:.4f}",
-                  f"{_delta('GBP_USD'):+.2f}% (1m)" if _delta('GBP_USD') is not None else None)
-with m4:
-    if "DXY" in fx.columns:
-        st.metric("Trade-weighted USD", f"{last['DXY']:.2f}",
-                  f"{_delta('DXY'):+.2f}% (1m)" if _delta('DXY') is not None else None)
+from dashboard.components.signal_card import render_market_kpi_row
+items = []
+for code, label, fmt, color in [
+    ("USD_EUR", "EUR/USD",            "{:.4f}", "#4fc3f7"),
+    ("JPY_USD", "USD/JPY",            "{:.2f}", "#fb923c"),
+    ("GBP_USD", "GBP/USD",            "{:.4f}", "#a78bfa"),
+    ("DXY",     "Trade-weighted USD", "{:.2f}", "#fbbf24"),
+]:
+    if code in fx.columns:
+        d = _delta(code)
+        items.append({
+            "label": label, "value": fmt.format(last[code]),
+            "unit": "spot",
+            "delta": f"{d:+.2f}% (1m)" if d is not None else None,
+            "color": color,
+        })
+render_market_kpi_row(items)
 
 st.divider()
 

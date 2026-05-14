@@ -53,6 +53,9 @@ st.caption(
 )
 st.divider()
 
+from dashboard.state import render_cache_freshness_banner
+render_cache_freshness_banner(stale_hours=24)
+
 df = get_master_df()
 if df.empty:
     st.error("No market data — refresh the cache.")

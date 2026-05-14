@@ -56,6 +56,8 @@ PAGE_INDEX: list[tuple[str, str, str, list[str]]] = [
         ["what changed", "delta", "yesterday", "moves", "biggest move", "digest"]),
     ("Watchlist",       "/Watchlist",         "📌",
         ["watchlist", "pin", "pinned", "track", "saved"]),
+    ("PCA Backtest",    "/PCA_Backtest",      "🧮",
+        ["pca", "backtest", "principal component", "level", "slope", "curvature", "mean reversion"]),
     ("Bond Futures",    "/Bond_Futures",      "📈",
         ["futures", "cme", "zn", "zb", "zf", "zt", "tn", "ub", "nob", "fyt", "bond future"]),
     ("Subscriber Sync", "/Subscriber_Sync",   "🔄",
