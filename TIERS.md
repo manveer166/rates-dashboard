@@ -86,9 +86,9 @@ upgrade CTA.
 
 > **Pro tier at a permanent discount, for the first 100 subscribers.**
 >
-> Same access as Pro. Price locked for life — when the rest of the world
-> pays $49 or more, you stay at $29. Direct line to feature requests.
-> First look at new pages.
+> Same access as Pro. Price locked for 10 years — for life. When the rest
+> of the world pays $49 or more, you stay at $29. Direct line to feature
+> requests. First look at new pages.
 >
 > **Price: $29 / month  ·  $290 / year (save 16%)**
 >
@@ -96,7 +96,7 @@ upgrade CTA.
 
 **What's included:**
 - Everything in Pro
-- 🔒 Price locked for life (as long as subscription is active)
+- 🔒 Price locked for 10 years — for life (as long as subscription is active)
 - ⚡ Direct feature-request channel
 - 🚀 First access to new pages before they go live
 
@@ -108,8 +108,9 @@ upgrade CTA.
   dashboard login. Pay through Substack, get instant access here.
 - **Cancel any time.** Substack handles billing — same monthly or annual
   cycle as any newsletter.
-- **Founding lock for life.** First 100 subs at $29/mo stay there as long as
-  the subscription is active. Rate goes up for everyone after slot 100.
+- **Founding lock — for life.** First 100 subs at $29/mo get a 10-year
+  price guarantee — effectively for life on any active subscription. Rate
+  goes up for everyone after slot 100.
 
 ---
 

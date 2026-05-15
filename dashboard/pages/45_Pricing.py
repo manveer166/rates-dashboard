@@ -219,7 +219,7 @@ with c4:
         includes_dashboard="pro",
         bullets=[
             "Everything in Pro — same access",
-            "🔒 <b>Price locked for life</b>",
+            "🔒 <b>Price locked for 10 years — for life</b>",
             "⚡ Direct line to feature requests",
             "🚀 First access to new pages",
             "<i>You shipped, the rest of the world hasn't</i>",
@@ -258,10 +258,11 @@ with ec2:
 with ec3:
     st.markdown(
         """
-        ### Founding lock for life
-        First 100 subscribers at the $29/mo rate stay there as long as
-        the subscription is active. The rate goes up for everyone after
-        slot 100, but you don't.
+        ### Founding lock — for life
+        First 100 subscribers at the $29/mo rate stay there for a
+        **10-year price guarantee** — effectively for life on any active
+        subscription. The rate goes up for everyone after slot 100, but
+        not for you.
         """
     )
 
@@ -299,7 +300,7 @@ matrix = [
     ("• 🧮 PCA Backtest — strategy on PCs",               "—",        "—",        "✓",       "✓"),
     ("• 🌊 Vol Surface",                                  "—",        "—",        "✓",       "✓"),
     ("**Founding-only perks**",                           "—",        "—",        "—",       "✓"),
-    ("• 🔒 Price locked for life",                        "—",        "—",        "—",       "✓"),
+    ("• 🔒 Price locked for 10 years (for life)",         "—",        "—",        "—",       "✓"),
     ("• ⚡ Direct feature-request line",                  "—",        "—",        "—",       "✓"),
     ("• 🚀 First access to new pages",                    "—",        "—",        "—",       "✓"),
     ("**Price (monthly)**",                               "**$0**",   "**$15**",  "**$49**", "**$29**"),
