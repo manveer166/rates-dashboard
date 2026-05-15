@@ -1,6 +1,8 @@
 """Page 45 — Pricing / Tier comparison.
 
-Public-facing marketing page that pitches the Free vs Premium tiers.
+Public-facing marketing page that pitches the four tiers:
+  Free  →  Substack  →  Pro  →  Founding (limited)
+
 Designed to convert free users → paid subscribers.
 """
 
@@ -23,168 +25,285 @@ render_sidebar_controls()
 render_page_header(current="Pricing")
 
 st.title("💎 Macro Manv Tiers")
-st.caption("What's free, what's paid, and why.")
+st.caption("Four tiers, one login. Pick what fits your workflow.")
 st.divider()
 
 
-# ── Two-column hero ──────────────────────────────────────────────────────
-free_col, prem_col = st.columns(2, gap="large")
+SUB_URL_BASE = ("https://manveersahota.substack.com/subscribe"
+                 "?utm_source=dashboard&utm_medium=pricing&utm_campaign=")
 
-with free_col:
-    st.markdown(
-        """
-        <div style='background:#0e1f3a;border:1px solid #233e6e;border-radius:10px;
-                    padding:24px 28px;height:100%;'>
-          <div style='color:#4ade80;font-size:11px;letter-spacing:2px;
-                      font-weight:700'>FREE</div>
-          <h2 style='color:#e8eef9;margin:6px 0 12px;font-size:28px'>
-              Rates intel
-          </h2>
-          <p style='color:#94a8c9;font-size:14px;line-height:1.6'>
-              Live US, EU, UK and Asian yield curves. Cross-asset context.
-              Real rates, breakevens, global inflation. A morning briefing
-              that pulls together today's top trade with the headlines that
-              matter for it. The auction calendar, the FOMC clock, and the
-              full Substack archive. Every week, one curated Trade of the
-              Week — its thesis and its running PnL, on the record.
-          </p>
-          <p style='color:#cbd5e1;font-size:14px;margin-top:18px;font-weight:600'>
-              For rates-curious investors who want institutional-quality
-              data without an institutional bill.
-          </p>
-          <div style='margin-top:24px;padding-top:18px;
-                      border-top:1px solid #233e6e'>
-            <div style='color:#94a8c9;font-size:11px;letter-spacing:1px;
-                        font-weight:700;margin-bottom:10px'>WHAT YOU GET</div>
-            <ul style='color:#cbd5e1;font-size:13px;line-height:1.9;
-                       padding-left:18px;margin:0'>
-              <li>🌅 Morning Briefing — single-screen daily view</li>
-              <li>🆕 What Changed Today — auto-flagged moves</li>
-              <li>📉 Yield curves: US, EU AAA, UK, Asia</li>
-              <li>📊 Spreads · 💱 FX · 📉 Real rates · 🔥 Inflation</li>
-              <li>🌐 Global Macro · 📈 Bond futures · 🌊 Vol Scorecard</li>
-              <li>🎯 Trade of the Week + 🏆 full track record</li>
-              <li>📅 Rates Calendar · 📡 Sources · 📖 Glossary</li>
-            </ul>
-          </div>
-          <div style='margin-top:24px;padding:12px 16px;background:#122340;
-                      border-radius:6px;text-align:center'>
-            <div style='color:#94a8c9;font-size:12px'>Price</div>
-            <div style='color:#e8eef9;font-size:24px;font-weight:700'>
-                $0 / month
-            </div>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
+
+def _tier_card(*, name: str, badge_color: str, tagline: str, price: str,
+                annual: str, includes_substack: bool, includes_dashboard: str,
+                bullets: list[str], cta_text: str, cta_url: str | None,
+                highlight: bool = False, limited_note: str | None = None):
+    """Render one tier card."""
+    border = "2px solid " + badge_color if highlight else "1px solid #233e6e"
+    shadow = (f"box-shadow:0 4px 16px {badge_color}25;"
+              if highlight else "")
+    bg = ("linear-gradient(135deg,#0e1f3a 0%,#1a3056 100%)"
+          if highlight else "#0e1f3a")
+
+    bullets_html = "".join(
+        f'<li style="margin:5px 0">{b}</li>' for b in bullets
     )
 
-with prem_col:
-    st.markdown(
-        """
-        <div style='background:linear-gradient(135deg,#0e1f3a 0%,#1a3056 100%);
-                    border:2px solid #4fc3f7;border-radius:10px;
-                    padding:24px 28px;height:100%;
-                    box-shadow:0 4px 12px rgba(79,195,247,0.15);'>
-          <div style='color:#4fc3f7;font-size:11px;letter-spacing:2px;
-                      font-weight:700'>PREMIUM — MACRO MANV PRO</div>
-          <h2 style='color:#e8eef9;margin:6px 0 12px;font-size:28px'>
-              The analytical stack
-          </h2>
-          <p style='color:#94a8c9;font-size:14px;line-height:1.6'>
-              Every receive/pay outright, curve, and fly ranked by Sharpe
-              with carry, rolldown, Z-score, and expected return.
-              DV01-neutral trade construction that hands you a ticket.
-              A backtester that gives every signal a credibility number.
-              Regime detection that tells you whether carry or convexity
-              wins in today's market.
-          </p>
-          <p style='color:#cbd5e1;font-size:14px;margin-top:18px;font-weight:600'>
-              For active rates traders who size positions, not just opinions.
-          </p>
-          <div style='margin-top:24px;padding-top:18px;
-                      border-top:1px solid #4fc3f7'>
-            <div style='color:#4fc3f7;font-size:11px;letter-spacing:1px;
-                        font-weight:700;margin-bottom:10px'>EVERYTHING IN FREE, PLUS</div>
-            <ul style='color:#cbd5e1;font-size:13px;line-height:1.9;
-                       padding-left:18px;margin:0'>
-              <li>🔍 <b>Trade Scanner</b> — full ranked RV board</li>
-              <li>🧰 <b>Trade Builder</b> — DV01-neutral leg sizing + ticket</li>
-              <li>🧪 <b>Backtester</b> — historical PnL for any trade</li>
-              <li>🧩 <b>Trade Decomposition</b> — carry/roll/mean-rev waterfall</li>
-              <li>🧭 <b>Regime detector</b> — carry vs convexity + conditional Sharpe</li>
-              <li>📐 <b>Regression · 🧮 PCA + PCA Backtest · 🔗 Correlation</b></li>
-              <li>🌊 <b>Vol Surface</b> — swaption ATM grid + smile</li>
-              <li>🏛️ <b>Auctions</b> — bid-to-cover, weak-flag alerts</li>
-              <li>📊 <b>CTA Positioning</b> — CFTC with 1Y percentile</li>
-              <li>📌 <b>Watchlist</b> — pin + live PnL + auto-alerts</li>
-            </ul>
-          </div>
-          <div style='margin-top:24px;padding:12px 16px;background:#0a1628;
-                      border-radius:6px;text-align:center;
-                      border:1px solid #4fc3f7'>
-            <div style='color:#94a8c9;font-size:12px'>Same as your</div>
-            <div style='color:#e8eef9;font-size:20px;font-weight:700;margin:4px 0'>
-                Macro Manv paid Substack
-            </div>
-            <div style='color:#94a8c9;font-size:11px;margin-top:4px'>
-                One subscription, same login email
-            </div>
-          </div>
-          <div style='margin-top:18px;text-align:center'>
-            <a href='https://manveersahota.substack.com/subscribe?utm_source=dashboard&utm_medium=pricing&utm_campaign=upgrade'
-               target='_blank'
-               style='display:inline-block;background:#4fc3f7;color:#0a1628;
-                      padding:12px 32px;border-radius:6px;text-decoration:none;
-                      font-weight:700;font-size:15px'>
-                📬 Upgrade to Pro →
-            </a>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    incl_lines = []
+    if includes_substack:
+        incl_lines.append(
+            '<div style="display:flex;align-items:center;gap:6px;margin:3px 0;'
+            'color:#4ade80;font-size:12px"><b>✓</b> Paid Substack newsletter</div>'
+        )
+    else:
+        incl_lines.append(
+            '<div style="display:flex;align-items:center;gap:6px;margin:3px 0;'
+            'color:#6a7e9e;font-size:12px"><b>✗</b> Paid Substack newsletter</div>'
+        )
+    if includes_dashboard == "free":
+        incl_lines.append(
+            '<div style="display:flex;align-items:center;gap:6px;margin:3px 0;'
+            'color:#94a8c9;font-size:12px"><b>~</b> Free dashboard pages (22)</div>'
+        )
+    elif includes_dashboard == "free+":
+        incl_lines.append(
+            '<div style="display:flex;align-items:center;gap:6px;margin:3px 0;'
+            'color:#94a8c9;font-size:12px"><b>✓</b> Free dashboard pages (22)</div>'
+        )
+    elif includes_dashboard == "pro":
+        incl_lines.append(
+            '<div style="display:flex;align-items:center;gap:6px;margin:3px 0;'
+            'color:#94a8c9;font-size:12px"><b>✓</b> Free dashboard pages (22)</div>'
+        )
+        incl_lines.append(
+            '<div style="display:flex;align-items:center;gap:6px;margin:3px 0;'
+            f'color:{badge_color};font-size:12px;font-weight:600">'
+            '<b>✓</b> Premium dashboard pages (13)</div>'
+        )
+    incl_html = "".join(incl_lines)
+
+    limited_html = ""
+    if limited_note:
+        limited_html = (
+            f'<div style="background:#3a1a06;color:#fb923c;font-size:10.5px;'
+            f'letter-spacing:0.5px;padding:4px 8px;border-radius:4px;'
+            f'margin-top:8px;text-align:center;font-weight:700">'
+            f'⚡ {limited_note}</div>'
+        )
+
+    cta_html = ""
+    if cta_url and cta_text:
+        cta_html = (
+            f'<div style="margin-top:18px;text-align:center">'
+            f'<a href="{cta_url}" target="_blank" '
+            f'style="display:inline-block;background:{badge_color};'
+            f'color:#0a1628;padding:11px 22px;border-radius:6px;'
+            f'text-decoration:none;font-weight:700;font-size:13.5px;'
+            f'width:90%;box-sizing:border-box">'
+            f'{cta_text}</a></div>'
+        )
+    elif cta_text:
+        # Disabled-style label (no link) — used for the Free tier
+        cta_html = (
+            f'<div style="margin-top:18px;text-align:center">'
+            f'<div style="background:#1a3056;color:#94a8c9;padding:11px 22px;'
+            f'border-radius:6px;font-weight:600;font-size:13px">{cta_text}</div>'
+            f'</div>'
+        )
+
+    return f"""
+    <div style='background:{bg};border:{border};border-radius:10px;
+                padding:20px 22px;height:100%;{shadow}'>
+      <div style='color:{badge_color};font-size:10.5px;letter-spacing:2px;
+                  font-weight:700;text-transform:uppercase'>{name}</div>
+      <h3 style='color:#e8eef9;margin:8px 0 6px;font-size:22px;line-height:1.2'>
+          {tagline}
+      </h3>
+      <div style='margin:12px 0 8px'>
+          <span style='color:#e8eef9;font-size:30px;font-weight:700'>{price}</span>
+          {f"<span style='color:#6a7e9e;font-size:13px;margin-left:6px'>/ month</span>" if price not in ("$0", "—") else ""}
+      </div>
+      {f"<div style='color:#94a8c9;font-size:12px;margin-bottom:4px'>{annual}</div>" if annual else ""}
+      {limited_html}
+      <div style='margin-top:14px;padding-top:14px;border-top:1px solid #233e6e'>
+          {incl_html}
+      </div>
+      <div style='margin-top:14px;padding-top:12px;border-top:1px solid #233e6e'>
+          <div style='color:#94a8c9;font-size:10.5px;letter-spacing:1px;
+                      font-weight:700;margin-bottom:6px'>HIGHLIGHTS</div>
+          <ul style='color:#cbd5e1;font-size:12.5px;line-height:1.55;
+                     padding-left:18px;margin:0'>{bullets_html}</ul>
+      </div>
+      {cta_html}
+    </div>
+    """
+
+
+# ── 4-column tier grid ────────────────────────────────────────────────────
+c1, c2, c3, c4 = st.columns(4, gap="medium")
+
+with c1:
+    st.markdown(_tier_card(
+        name="Free",
+        badge_color="#4ade80",
+        tagline="Rates intel",
+        price="$0",
+        annual="Forever free",
+        includes_substack=False,
+        includes_dashboard="free+",
+        bullets=[
+            "Free newsletter posts",
+            "🌅 Morning Briefing daily",
+            "📉 US, EU, UK & Asian yield curves",
+            "💱 FX overlay · 🔥 Global inflation",
+            "🎯 Trade of the Week + 🏆 track record",
+            "📅 Rates Calendar · 📚 Glossary",
+        ],
+        cta_text="You're here",
+        cta_url=None,
+    ), unsafe_allow_html=True)
+
+with c2:
+    st.markdown(_tier_card(
+        name="Substack",
+        badge_color="#fbbf24",
+        tagline="The writing",
+        price="$15",
+        annual="$150 / year (save 17%)",
+        includes_substack=True,
+        includes_dashboard="free+",
+        bullets=[
+            "Everything in Free",
+            "📨 Full paid Substack archive",
+            "📨 Premium-only Substack posts",
+            "📨 Deep-dive analysis pieces",
+            "Same dashboard access as Free tier",
+            "<i>No premium dashboard pages</i>",
+        ],
+        cta_text="📨 Subscribe to newsletter",
+        cta_url=SUB_URL_BASE + "substack_only",
+    ), unsafe_allow_html=True)
+
+with c3:
+    st.markdown(_tier_card(
+        name="Pro · Macro Manv",
+        badge_color="#4fc3f7",
+        tagline="The analytical stack",
+        price="$49",
+        annual="$420 / year (save 28%)",
+        includes_substack=True,
+        includes_dashboard="pro",
+        bullets=[
+            "Everything in Substack",
+            "🔍 Trade Scanner — ranked RV ideas",
+            "🧰 DV01-neutral Trade Builder + ticket",
+            "🧪 Backtester with 5Y history",
+            "🧭 Regime detector + 🧩 Decomposition",
+            "🧮 PCA + 🔗 Correlation + 📐 Regression",
+            "🏛️ Auction quality · 📊 CTA positioning",
+            "📌 Watchlist with auto-alerts",
+        ],
+        cta_text="📬 Upgrade to Pro →",
+        cta_url=SUB_URL_BASE + "pro_upgrade",
+        highlight=True,
+    ), unsafe_allow_html=True)
+
+with c4:
+    st.markdown(_tier_card(
+        name="Founding",
+        badge_color="#a78bfa",
+        tagline="Pro, price-locked",
+        price="$29",
+        annual="$290 / year (save 16%)",
+        includes_substack=True,
+        includes_dashboard="pro",
+        bullets=[
+            "Everything in Pro — same access",
+            "🔒 <b>Price locked for life</b>",
+            "⚡ Direct line to feature requests",
+            "🚀 First access to new pages",
+            "<i>You shipped, the rest of the world hasn't</i>",
+        ],
+        cta_text="⚡ Lock in $29 →",
+        cta_url=SUB_URL_BASE + "founding",
+        limited_note="LIMITED — FIRST 100 SUBSCRIBERS",
+    ), unsafe_allow_html=True)
+
 
 st.write("")
 st.write("")
 
 
-# ── Why-this-split rationale ─────────────────────────────────────────────
-st.subheader("🤔 Why this split?")
-
-rc1, rc2, rc3 = st.columns(3)
-with rc1:
+# ── How tier upgrades work ───────────────────────────────────────────────
+st.subheader("🔁 How upgrades work")
+ec1, ec2, ec3 = st.columns(3)
+with ec1:
     st.markdown(
         """
-        ### Free is generous on purpose
-        Every yield curve, every breakeven, every piece of macro context is
-        free. That's how we build trust and prove the data quality.
-
-        **Free readers see *what* the market is doing.**
+        ### One subscription, one email
+        Your Substack subscription email is also your dashboard login.
+        Pay through Substack, get instant access here. No second account
+        to manage.
         """
     )
-with rc2:
+with ec2:
     st.markdown(
         """
-        ### Premium is the alpha layer
-        It's the *which trade to put on, how to size it, and what's the
-        historical edge*. Work that takes hours per day if you do it
-        manually.
-
-        **Premium readers see *what to do about it*.**
+        ### Cancel any time
+        Substack handles the billing — same monthly or annual cycle as
+        any other paid newsletter. Cancel mid-cycle, keep access until
+        the period ends.
         """
     )
-with rc3:
+with ec3:
     st.markdown(
         """
-        ### Owner-only tools
-        Compose pages (Alerts, AI Drafter, Social Cards, A/B Tests, Admin)
-        produce the content that subscribers consume on Substack / email /
-        social.
-
-        **Subscribers never see these — and shouldn't have to.**
+        ### Founding lock for life
+        First 100 subscribers at the $29/mo rate stay there as long as
+        the subscription is active. The rate goes up for everyone after
+        slot 100, but you don't.
         """
     )
+
+st.divider()
+
+
+# ── Feature comparison matrix ────────────────────────────────────────────
+st.subheader("📋 Full feature comparison")
+
+import pandas as pd
+matrix = [
+    ("**Free dashboard pages (22)**",                     "✓",        "✓",        "✓",       "✓"),
+    ("• Morning Briefing · What Changed",                 "✓",        "✓",        "✓",       "✓"),
+    ("• US / EU / UK / Asian curves",                     "✓",        "✓",        "✓",       "✓"),
+    ("• Real Rates · FX · Global Inflation",              "✓",        "✓",        "✓",       "✓"),
+    ("• Cross-Asset · Vol Scorecard · Bond Futures",      "✓",        "✓",        "✓",       "✓"),
+    ("• Trade of the Week + Performance",                 "✓",        "✓",        "✓",       "✓"),
+    ("• Rates Calendar · Glossary · User Guide",          "✓",        "✓",        "✓",       "✓"),
+    ("**Free newsletter posts**",                         "✓",        "✓",        "✓",       "✓"),
+    ("**Paid newsletter (Substack premium)**",            "—",        "✓",        "✓",       "✓"),
+    ("• Full archive access",                             "—",        "✓",        "✓",       "✓"),
+    ("• Premium-only posts",                              "—",        "✓",        "✓",       "✓"),
+    ("**Premium dashboard pages (13)**",                  "—",        "—",        "✓",       "✓"),
+    ("• 🔍 Trade Scanner (ranked board)",                 "—",        "—",        "✓",       "✓"),
+    ("• 🧰 Trade Builder (DV01-neutral)",                 "—",        "—",        "✓",       "✓"),
+    ("• 🧪 Backtester · 🧩 Trade Decomposition",          "—",        "—",        "✓",       "✓"),
+    ("• 🧭 Regime detector",                              "—",        "—",        "✓",       "✓"),
+    ("• 🧮 PCA + PCA Backtest",                           "—",        "—",        "✓",       "✓"),
+    ("• 🔗 Correlation · 📐 Regression",                  "—",        "—",        "✓",       "✓"),
+    ("• 🌊 Vol Surface",                                  "—",        "—",        "✓",       "✓"),
+    ("• 🏛️ Auctions · 📊 CTA Positioning",                "—",        "—",        "✓",       "✓"),
+    ("• 📌 Watchlist with auto-alerts",                   "—",        "—",        "✓",       "✓"),
+    ("**Founding-only perks**",                           "—",        "—",        "—",       "✓"),
+    ("• 🔒 Price locked for life",                        "—",        "—",        "—",       "✓"),
+    ("• ⚡ Direct feature-request line",                  "—",        "—",        "—",       "✓"),
+    ("• 🚀 First access to new pages",                    "—",        "—",        "—",       "✓"),
+    ("**Price (monthly)**",                               "**$0**",   "**$15**",  "**$49**", "**$29**"),
+    ("**Price (annual)**",                                "—",        "$150",     "$420",    "$290"),
+]
+mdf = pd.DataFrame(matrix, columns=["Feature", "Free", "Substack",
+                                       "Pro", "Founding"])
+st.markdown(mdf.to_markdown(index=False), unsafe_allow_html=False)
+
 
 st.divider()
 
@@ -193,17 +312,17 @@ st.divider()
 from dashboard.components.signal_card import render_market_kpi_row
 render_market_kpi_row([
     {"label": "Free pages",     "value": "22", "unit": "publicly browsable",
-     "hint": "Markets + Help + TotW + Performance", "color": "#4ade80"},
-    {"label": "Premium pages",  "value": "13", "unit": "behind the gate",
-     "hint": "Analytics + Trade tools + Flow data", "color": "#4fc3f7"},
-    {"label": "Owner-only",     "value": "10", "unit": "admin tools",
-     "hint": "Publish + Admin (invisible to subscribers)", "color": "#94a8c9"},
-    {"label": "Total",          "value": "45", "unit": "pages built",
+     "hint": "Curves · macro · TotW · calendar", "color": "#4ade80"},
+    {"label": "Premium pages",  "value": "13", "unit": "Pro / Founding",
+     "hint": "Scanner · Backtester · Regime · …", "color": "#4fc3f7"},
+    {"label": "Total built",    "value": "45", "unit": "pages",
      "hint": "Updated continuously", "color": "#fbbf24"},
+    {"label": "Tier you're on", "value": "—",  "unit": "log in to see",
+     "hint": "Free · Substack · Pro · Founding", "color": "#a78bfa"},
 ])
 
 st.divider()
 st.caption(
-    "Questions? Reply to any Macro Manv email or DM "
+    "Questions? Reply to any Macro Manv email, or DM "
     "[@MacroManv](https://twitter.com/MacroManv) on X."
 )

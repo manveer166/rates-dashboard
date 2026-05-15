@@ -5,93 +5,152 @@ upgrade CTA.
 
 ---
 
-## 🟢 Free tier
+## 🟢 Free — *Rates intel*
 
-> **Rates intel without a Bloomberg subscription.**
+> **Rates intel without a Bloomberg subscription — free forever.**
 >
-> Live US, EU, UK, and Asian yield curves. Cross-asset context (VIX, credit
-> spreads, FX). Real rates and breakevens, global inflation. A morning
-> briefing pulled together with the day's top trade and the headlines that
-> matter for it. The auction calendar, the FOMC clock, and the Substack
-> archive. Every week, one curated Trade of the Week — its thesis and its
-> running PnL, on the record.
+> Live US, EU, UK, and Asian yield curves. Cross-asset context. Real rates
+> and breakevens. A morning briefing pulled together with today's top trade
+> and the headlines that matter for it. Every week, one curated Trade of the
+> Week — its thesis and its running PnL, on the record. The Macro Manv free
+> newsletter posts as part of the same subscription.
 >
-> Built for rates-curious investors who want institutional-quality data
-> without an institutional bill.
+> **Price: $0 forever**
+>
+> For rates-curious investors who want institutional-quality data without
+> paying for it.
 
-**What you get (free, ~22 pages):**
-
-- 🌅 Morning Briefing — the single-screen daily view
-- 🆕 What Changed Today — auto-flagged moves vs yesterday/last week
-- 📉 Yield Curve / 🌍 Global Curves / 📊 Spreads — US, EU AAA, UK gilts, Asian sovereigns
-- 💱 FX Overlay — major USD pairs vs US 10Y
-- 📉 Real Rates & Breakevens
-- 🔥 Global Inflation — multi-country CPI + unemployment via OECD
-- 🌐 Global Macro — OECD CLI, JOLTS labour data
-- 📈 Bond Futures — CME ZN/ZB/ZF + NOB/FYT spreads
-- 🌊 Vol Scorecard — realised yield vol + term structure
-- 🌐 Cross-Asset 1-pager — rates + credit + equity-vol in one view
-- 🎯 Trade of the Week — curated weekly pick + thesis
-- 🏆 Performance — public track record of every TotW pick
-- 📅 Rates Calendar — FOMC, NFP, CPI, auction schedule
-- 📡 Data Sources · 📖 Glossary · 📘 User Guide — the basics
+**What's included:**
+- Free newsletter posts (Substack public)
+- All 22 free dashboard pages
 
 ---
 
-## 🔵 Premium tier — *Macro Manv Pro*
+## 🟡 Substack — *The writing*
+
+> **The full Macro Manv newsletter — premium posts, full archive, deep-dive
+> pieces — without the analytical dashboard.**
+>
+> For readers who want the writing but don't need the trade-scanner /
+> backtester / regime tools. Same dashboard access as the Free tier.
+>
+> **Price: $15 / month  ·  $150 / year (save 17%)**
+>
+> For readers who follow the writing closely but don't manage rates positions.
+
+**What's included:**
+- Everything in Free
+- Paid Substack newsletter (full archive, premium-only posts)
+- Same dashboard access as Free (no Pro pages)
+
+---
+
+## 🔵 Pro — *Macro Manv Pro*
 
 > **The analytical stack rates desks pay six figures for.**
 >
 > Every receive/pay outright, curve, and fly ranked by Sharpe with carry,
 > rolldown, Z-score, and expected return. DV01-neutral trade construction
 > that hands you a ticket. A backtester that gives every signal a credibility
-> number. Regime detection that tells you whether carry or convexity wins
-> in today's market — and a heatmap of which trades worked in which regime.
-> Auction quality, CTA positioning, and a watchlist that tracks every pin
-> with live PnL and alerts.
+> number. Regime detection that tells you whether carry or convexity wins in
+> today's market.
+>
+> Pro **includes** the paid Substack subscription — one checkout, one login.
+>
+> **Price: $49 / month  ·  $420 / year (save 28%)**
 >
 > For active rates traders who size positions, not just opinions.
 
-**What unlocks (premium, 13 pages — everything in Free plus):**
-
-- 🔍 **Trade Scanner** — full ranked board, Sharpe / Z / carry / rolldown / E[Ret] / 1W move
-- 🧰 **Trade Builder** — DV01-neutral sizing + copy-pasteable ticket
-- 🧪 **Backtester** — daily PnL, Sharpe, hit rate, max DD for any structure
-- 🧩 **Trade Decomposition** — carry / rolldown / mean-rev waterfall with sensitivity table
-- 🧭 **Regime detector** — carry vs convexity classification + conditional Sharpe heatmap
-- 📐 **Regression** — yields vs macro factor fits, find what's mispriced
-- 🧮 **PCA + PCA Backtest** — level/slope/curvature decomposition + mean-reversion strategy
-- 🔗 **Correlation matrix** — unobvious hedges and rotation candidates
-- 🌊 **Vol Surface** — swaption ATM grid, term structure, smile
-- 🏛️ **Auction Tracker** — bid-to-cover, indirect %, weak-auction flags in real time
-- 📊 **CTA Positioning** — CFTC commitment-of-traders with 1Y percentile flags
-- 📌 **Watchlist** — pin trades, live PnL since pin, auto-alerts at Z extremes
-
-**Pricing:** match your Substack paid tier. The dashboard is the analytical
-arm of the same subscription — same email, single source of truth.
+**What's included:**
+- Everything in Substack (paid newsletter + free dashboard)
+- All 13 premium dashboard pages:
+  - 🔍 Trade Scanner — ranked RV board
+  - 🧰 Trade Builder — DV01-neutral leg sizing + ticket
+  - 🧪 Backtester — daily PnL / Sharpe / max DD for any structure
+  - 🧩 Trade Decomposition — carry / rolldown / mean-rev waterfall
+  - 🧭 Regime detector — carry vs convexity + conditional Sharpe
+  - 🧮 PCA + PCA Backtest — strategy on principal components
+  - 🔗 Correlation matrix
+  - 📐 Regression — yields vs macro fits
+  - 🌊 Vol Surface
+  - 🏛️ Auctions — bid-to-cover + weak-flag alerts
+  - 📊 CTA Positioning — CFTC commitment-of-traders
+  - 📌 Watchlist — pin + live PnL + auto-alerts
 
 ---
 
-## Why this split
+## 🟣 Founding — *Pro, price-locked*
+
+> **Pro tier at a permanent discount, for the first 100 subscribers.**
+>
+> Same access as Pro. Price locked for life — when the rest of the world
+> pays $49 or more, you stay at $29. Direct line to feature requests.
+> First look at new pages.
+>
+> **Price: $29 / month  ·  $290 / year (save 16%)**
+>
+> Limited to first 100 subs.
+
+**What's included:**
+- Everything in Pro
+- 🔒 Price locked for life (as long as subscription is active)
+- ⚡ Direct feature-request channel
+- 🚀 First access to new pages before they go live
+
+---
+
+## How upgrades work
+
+- **One subscription, one email.** Your Substack email is also your
+  dashboard login. Pay through Substack, get instant access here.
+- **Cancel any time.** Substack handles billing — same monthly or annual
+  cycle as any newsletter.
+- **Founding lock for life.** First 100 subs at $29/mo stay there as long as
+  the subscription is active. Rate goes up for everyone after slot 100.
+
+---
+
+## Why this 4-tier split
 
 **Free is generous on purpose.** Every yield curve, every breakeven, every
-piece of macro context is free — that's how you build trust and prove the
-data quality. Free readers see *what* the market is doing.
+piece of macro context is free. Proves the data quality and builds trust.
 
-**Premium is the alpha layer.** It's the *which trade to put on, how to
-size it, and what's the historical edge* — work that takes hours per day if
-you do it manually. Premium readers see *what to do about it*.
+**Substack** is for readers who follow the writing but don't manage rates
+positions — they don't need the tools, just the analysis.
 
-**Owner-only tools** (Alerts composer, AI Drafter, Social Cards, A/B Tests,
-Subscriber Sync, CTA Audit, Admin) are never visible to subscribers — they
-produce the content that subscribers consume on Substack / email / social.
+**Pro** is for active traders. Bundles the paid newsletter + the
+institutional-grade analytical stack. Priced 3-4x a standard finance
+Substack but well below any direct competitor (Macro Hive, Bond Vigilantes,
+Hedgeye).
+
+**Founding** rewards early believers with permanent pricing — creates
+urgency and locks loyalty.
+
+---
+
+## Pricing rationale (for context, not the page)
+
+| Comparable | Type | Monthly |
+|---|---|---|
+| Net Interest | Niche newsletter | $15 |
+| Concoda+ / Doomberg | Niche premium newsletter | $20-30 |
+| Macro Hive Premium | Newsletter + light tools | $50-60 |
+| Bond Vigilantes Pro | Newsletter + scenarios | $50 |
+| Hedgeye macro | Newsletter + tools | $125-250 |
+| Bloomberg Terminal | Full institutional | $2,000+ |
+
+**Pro at $49/mo** sits squarely in the "serious independent product"
+band — above pure newsletters, below institutional terminals. **Founding
+at $29/mo** is anchor pricing that makes Pro feel reasonably priced by
+comparison.
 
 ---
 
 ## Counter
 
-- **Free pages:** ~22 (most Markets + Help + Trade-of-Week + Performance)
-- **Premium pages:** 13 (full Analytics + Trade Builder/Backtester/Watchlist + Auctions/CTA flow)
-- **Owner-only:** ~10 (Publish + Admin sections)
-
-Total: **45 pages.**
+- **Free tier:** ~22 dashboard pages, free newsletter
+- **Substack tier:** Free + paid newsletter
+- **Pro tier:** Substack + 13 premium dashboard pages
+- **Founding tier:** Pro + price lock + early access (first 100 only)
+- **Total pages built:** 45
+- **Owner-only (invisible to subscribers):** 10
