@@ -166,52 +166,134 @@ def _format_trade(t: str, ttype: str) -> str:
     return bare
 
 
+def _angle_bias(angle: str, title_hint: str = "") -> str:
+    """Classify the user's angle into a directional thesis so the drafter
+    can pick a trade that supports it, rather than just the highest-Sharpe
+    pick (which may run counter to the thesis)."""
+    text = f"{angle} {title_hint}".lower()
+    if not text.strip():
+        return "neutral"
+    up = ["selloff", "sell-off", "yields ris", "yields up", "yields soar",
+          "higher yield", "hot inflation", "hot cpi", "hot ppi", "ppi hot",
+          "cpi hot", "oil surge", "oil shock", "hawkish", " pay ",
+          "short duration", "steepener", "bear steepen", "curve steepen",
+          "inflation", "soaring", "spike", "back up", "global selloff",
+          "ppi", "cpi hot", "fiscal", "supply concern", "term premium"]
+    down = ["rally", "duration buy", "lower yield", "yields fall",
+            "dovish", "easing", "rate cut", "bull flat", "flattener",
+            "recession", "growth fear", "risk off", "bond rally",
+            "flight to quality", "demand for bonds", "soft data"]
+    u = sum(1 for w in up if w in text)
+    d = sum(1 for w in down if w in text)
+    if u > d: return "yields_up"
+    if d > u: return "yields_down"
+    return "neutral"
+
+
+def _pick_signature(ctx: dict, bias: str):
+    """Pick the trade that best supports the user's thesis.
+
+    Returns (trade_dict_or_None, why_phrase, direction_verb).
+      - yields_up → look in cheap basket (Z < -2 = pay-side opportunity).
+      - yields_down → look in rich basket (Z > +2 = receive at the extreme).
+      - neutral → top by Sharpe (existing behaviour).
+    Prefer curve trades when available — steepeners/flatteners are the
+    cleanest expression of a yields-direction thesis."""
+    top   = ctx.get("top_trades") or []
+    cheap = ctx.get("cheap") or []
+    rich  = ctx.get("rich") or []
+    if bias == "yields_up" and cheap:
+        steep = [c for c in cheap if c.get("Type") == "Curve"]
+        pick  = steep[0] if steep else cheap[0]
+        why   = ("a pay-side steepener" if steep
+                 else "a pay-side dislocation in the belly")
+        return pick, why, "Pay"
+    if bias == "yields_down" and rich:
+        flat = [r for r in rich if r.get("Type") == "Curve"]
+        pick = flat[0] if flat else rich[0]
+        why  = ("a receive-side flattener" if flat
+                else "a receive-side mean-reversion at a 1-year extreme")
+        return pick, why, "Receive"
+    return (top[0] if top else None), "the highest-Sharpe RV pick", "Receive"
+
+
 def template_draft(ctx: dict, post_type: str, length: str, tone: str,
                     title_hint: str = "", angle: str = "") -> str:
     """Deterministic Markdown draft — uses every meaningful data point.
     Reads as a competent desk note, not a stub."""
     date_str = datetime.today().strftime("%d %b %Y")
+    bias = _angle_bias(angle, title_hint)
+    sig, sig_why, sig_verb = _pick_signature(ctx, bias)
 
-    # Build the lede
-    lede_parts = []
-    if ctx.get("top_trades"):
-        best = ctx["top_trades"][0]
-        best_name = _format_trade(best["Trade"], best["Type"])
-        if best["Z"] < -0.5:
-            stance = f"still trades cheap (z = {best['Z']:+.2f})"
-        elif best["Z"] > 0.5:
-            stance = f"sits rich (z = {best['Z']:+.2f})"
-        else:
-            stance = "screens fairly valued"
-        lede_parts.append(
-            f"**The trade that screens best today is receive {best_name}** — "
-            f"Sharpe {best['Sharpe']:+.2f}, expected return {best['E[Ret]']:+.0f} bps/yr — "
-            f"and it {stance}."
-        )
-    if ctx.get("s2s10s_now") is not None:
-        d = ctx.get("s2s10s_d1w", 0)
-        direction = "flattened" if d < 0 else "steepened"
-        lede_parts.append(
-            f"2s10s sits at **{ctx['s2s10s_now']:+.0f} bps**, having {direction} "
-            f"{abs(d):.0f} bps over the week."
-        )
-
-    # Headline
-    if title_hint.strip():
+    # Headline — title_hint wins only if it reads like a title (short).
+    # Long-form text in title_hint or angle is treated as opening prose below.
+    if title_hint.strip() and len(title_hint.strip()) < 120:
         title = title_hint.strip()
-    elif ctx.get("top_trades"):
-        best = ctx["top_trades"][0]
-        title = f"The {_format_trade(best['Trade'], best['Type'])} screen"
+    elif sig:
+        sig_name_t = _format_trade(sig["Trade"], sig["Type"])
+        if bias == "yields_up":
+            title = f"Yields up — the scanner's pay-side picks"
+        elif bias == "yields_down":
+            title = f"The bid is back — receivers cluster at the top"
+        else:
+            title = f"The {sig_name_t} screen"
     else:
         title = "Rates this week — scanner read"
 
-    # Build the body
     lines = [f"# {title}", f"_{date_str} — Macro Manv_", ""]
-    if angle.strip():
-        lines.append(f"> {angle.strip()}")
+
+    # If the user pasted long-form prose into angle or title_hint, treat it
+    # as the actual lede — then bridge into the scanner read. This is the
+    # fix for "drafter pastes my angle as a blockquote and writes a generic
+    # body underneath".
+    opening_prose = ""
+    if angle.strip() and len(angle.strip()) > 80:
+        opening_prose = angle.strip()
+    elif title_hint.strip() and len(title_hint.strip()) > 80:
+        opening_prose = title_hint.strip()
+
+    if opening_prose:
+        lines.append(opening_prose)
         lines.append("")
-    lines.append(" ".join(lede_parts))
-    lines.append("")
+        if sig:
+            sig_name = _format_trade(sig["Trade"], sig["Type"])
+            stance = ("screens cheap to receive — i.e. the pay-side is set up to revert"
+                      if sig["Z"] < -1 else
+                      "sits rich to receive — i.e. yields look extended vs 1Y history"
+                      if sig["Z"] > 1 else
+                      "screens fairly valued")
+            lines.append(
+                f"On this read, the scanner agrees — {sig_why} stands out: "
+                f"**{sig_verb.lower()} {sig_name}** (Sharpe {sig['Sharpe']:+.2f}, "
+                f"z = {sig['Z']:+.2f}, E[Ret] {sig['E[Ret]']:+.0f} bps/yr). "
+                f"It {stance}, which is exactly what the bigger move would predict."
+            )
+            lines.append("")
+    else:
+        # Short or no angle — original short-form lede, but now bias-aware.
+        lede_parts = []
+        if sig:
+            sig_name = _format_trade(sig["Trade"], sig["Type"])
+            stance = (f"still trades cheap (z = {sig['Z']:+.2f})" if sig["Z"] < -0.5
+                      else f"sits rich (z = {sig['Z']:+.2f})" if sig["Z"] > 0.5
+                      else "screens fairly valued")
+            lede_parts.append(
+                f"**The trade that screens best today is {sig_verb.lower()} "
+                f"{sig_name}** — Sharpe {sig['Sharpe']:+.2f}, expected return "
+                f"{sig['E[Ret]']:+.0f} bps/yr — and it {stance}."
+            )
+        if ctx.get("s2s10s_now") is not None:
+            d = ctx.get("s2s10s_d1w", 0)
+            direction = "flattened" if d < 0 else "steepened"
+            lede_parts.append(
+                f"2s10s sits at **{ctx['s2s10s_now']:+.0f} bps**, having {direction} "
+                f"{abs(d):.0f} bps over the week."
+            )
+        if angle.strip():
+            lines.append(f"> {angle.strip()}")
+            lines.append("")
+        lines.append(" ".join(lede_parts))
+        lines.append("")
 
     # Curve walk
     if ctx.get("curve"):
@@ -230,13 +312,54 @@ def template_draft(ctx: dict, post_type: str, length: str, tone: str,
             lines.append(f"| {r['tenor']} | {r['level']:.2f}% | {r['d1w_bps']:+.0f} bps | {r['d1m_bps']:+.0f} bps |")
         lines.append("")
 
-    # Top trades
-    if ctx.get("top_trades"):
+    # Top trades — when the user gave a directional thesis, surface the
+    # basket that supports it (cheap for yields-up, rich for yields-down)
+    # rather than the generic top-by-Sharpe list. This is what makes the
+    # body actually relevant to the angle.
+    if bias == "yields_up" and ctx.get("cheap"):
+        lines.append("## What the scanner is flagging")
+        lines.append("")
+        picks = ctx["cheap"][:5]
+        lines.append(
+            "Cheap receivers dominate the bottom of the screen — these are "
+            "the **pay-side opportunities** that line up with the thesis. "
+            "The five most-dislocated by z:"
+        )
+        lines.append("")
+        lines.append("| # | Trade (pay-side) | Sharpe | Z | E[Ret] |")
+        lines.append("|---|---|---:|---:|---:|")
+        for i, t in enumerate(picks, 1):
+            # Sharpe is computed for the receiver direction — pay-side
+            # Sharpe is its negation.
+            pay_sharpe = -float(t.get("Sharpe", 0))
+            lines.append(
+                f"| {i} | Pay {_format_trade(t['Trade'], t['Type'])} | "
+                f"{pay_sharpe:+.2f} | {t['Z']:+.2f} | {abs(float(t['E[Ret]'])):+.0f} bps/yr |"
+            )
+        lines.append("")
+    elif bias == "yields_down" and ctx.get("rich"):
+        lines.append("## What the scanner is flagging")
+        lines.append("")
+        picks = ctx["rich"][:5]
+        lines.append(
+            "Receivers cluster at the top of the curve — these are the "
+            "**receive-side mean-reversion** trades that fit a yields-down "
+            "thesis. The five most-extended by z:"
+        )
+        lines.append("")
+        lines.append("| # | Trade | Sharpe | Z | E[Ret] |")
+        lines.append("|---|---|---:|---:|---:|")
+        for i, t in enumerate(picks, 1):
+            lines.append(
+                f"| {i} | Receive {_format_trade(t['Trade'], t['Type'])} | "
+                f"{t['Sharpe']:+.2f} | {t['Z']:+.2f} | {t['E[Ret]']:+.0f} bps/yr |"
+            )
+        lines.append("")
+    elif ctx.get("top_trades"):
+        # Neutral / no angle — original top-by-Sharpe view.
         lines.append("## What the scanner is flagging")
         lines.append("")
         top5 = ctx["top_trades"][:5]
-        top_names = [_format_trade(t["Trade"], t["Type"]) for t in top5]
-        # Detect concentration
         from collections import Counter
         types = Counter(t["Type"] for t in top5)
         dominant = types.most_common(1)[0][0]
@@ -296,13 +419,22 @@ def template_draft(ctx: dict, post_type: str, length: str, tone: str,
         lines.append("For context: " + ", ".join(cross_parts) + ".")
         lines.append("")
 
-    # Closing wrap
-    if ctx.get("top_trades"):
-        best = ctx["top_trades"][0]
+    # Closing wrap — uses signature trade (which respects the user's
+    # thesis bias), not the top-by-Sharpe pick.
+    if sig:
+        sig_name = _format_trade(sig["Trade"], sig["Type"])
+        if bias == "yields_up":
+            rationale = ("the pay-side dislocation hasn't fully normalised and the "
+                         "macro is pulling in the same direction.")
+        elif bias == "yields_down":
+            rationale = ("yields look extended versus history and the receiver carry "
+                         "is supportive at this level.")
+        else:
+            rationale = ("carry is supportive and the dislocation hasn't fully "
+                         "normalised.")
         lines.append(
-            f"**The trade I'd put on:** receive {_format_trade(best['Trade'], best['Type'])} "
-            f"as the cleanest expression of where the model has its highest conviction. "
-            f"Carry is supportive; the dislocation hasn't fully normalised."
+            f"**The trade I'd put on:** {sig_verb.lower()} {sig_name} — "
+            f"{sig_why} that lines up with the bigger picture. {rationale}"
         )
         lines.append("")
 
@@ -375,6 +507,26 @@ def _llm_user_msg(ctx: dict, post_type: str, length: str, tone: str,
                       ", ".join(f"{t['Trade']} Z={t['Z']:+.2f}" for t in ctx["rich"]))
     ctx_block = "\n".join(lines)
 
+    bias = _angle_bias(angle, title_hint)
+    bias_guidance = {
+        "yields_up": (
+            "The author's thesis is YIELDS UP / inflation hot / curve under "
+            "pressure. Pick the RV trade from the CHEAP basket (Z < -2) — "
+            "those are pay-side / steepener opportunities that fit the "
+            "thesis. Do NOT lead with the highest-Sharpe receiver if it "
+            "screens rich (Z > 0) — that contradicts the angle."
+        ),
+        "yields_down": (
+            "The author's thesis is YIELDS DOWN / duration bid / rally. Pick "
+            "the RV trade from the RICH basket (Z > +2) — those are receive-"
+            "side mean-reversion trades that fit the thesis. Avoid leading "
+            "with cheap (Z < 0) trades that contradict the angle."
+        ),
+        "neutral": (
+            "No directional bias inferred — use the highest-Sharpe RV pick."
+        ),
+    }[bias]
+
     return (
         f"Draft a Substack post.\n\n"
         f"POST TYPE: {post_type}\n"
@@ -382,10 +534,16 @@ def _llm_user_msg(ctx: dict, post_type: str, length: str, tone: str,
         f"TONE: {tone}\n"
         f"TITLE/ANGLE HINT: {title_hint or '(none — you choose)'}\n"
         f"AUTHOR'S ANGLE: {angle or '(none — derive a clean view from the data)'}\n\n"
+        f"DIRECTIONAL BIAS (inferred from angle): {bias.upper()}\n"
+        f"BIAS GUIDANCE: {bias_guidance}\n\n"
         f"=== TODAY'S MARKET DATA ===\n{ctx_block}\n=== END DATA ===\n\n"
-        f"Now write the post. Lead with the most interesting thing in the data. "
-        f"Use the trade ideas / z-extremes where they support the argument. "
-        f"End with a one-line wrap, no 'in conclusion'."
+        f"Now write the post. The AUTHOR'S ANGLE is the spine — every "
+        f"section should reinforce or test it, never sidebar it. If the "
+        f"angle is long-form prose (a paragraph or more), treat it as the "
+        f"actual opening of the piece, then bridge into the scanner read. "
+        f"Pick the RV trade that BEST FITS THE ANGLE per the bias guidance "
+        f"above — not just the highest Sharpe. End with a one-line wrap, "
+        f"no 'in conclusion'."
     )
 
 
