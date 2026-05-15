@@ -170,6 +170,14 @@ def _get_client_ip() -> str:
 
 ADMIN_PASSWORD  = _secret("ADMIN_PASSWORD", "manveer")
 
+# Optional recovery code — accepted in place of ADMIN_PASSWORD when the
+# primary password is forgotten. Generate with:
+#     openssl rand -hex 16        # 32-char hex (recommended)
+# Store in secrets.toml as ADMIN_BACKUP_CODE = "…" or set the env var
+# on Fly with:    fly secrets set ADMIN_BACKUP_CODE=…
+# Leave empty to disable backup-code login entirely (default).
+ADMIN_BACKUP_CODE = _secret("ADMIN_BACKUP_CODE", "").strip()
+
 # Named viewer passwords — each password maps to a user label so login
 # notifications can tell you WHO logged in. Add more in secrets.toml as a
 # comma-separated "password:name" list, e.g. "rates:Viewer,nomh:NomH,nomm:NomM"
@@ -346,9 +354,15 @@ def password_gate() -> None:
                 if st.form_submit_button("Log in", use_container_width=True, type="primary"):
                     if not username.strip():
                         st.error("Please enter a username.")
-                    elif pw == ADMIN_PASSWORD:
+                    elif pw == ADMIN_PASSWORD or (
+                            ADMIN_BACKUP_CODE and pw == ADMIN_BACKUP_CODE):
                         ip = _get_client_ip()
-                        _send_login_email(username.strip(), pw, "admin", ip)
+                        # Distinguish backup-code logins in the audit email
+                        # so you see immediately if the recovery path was used.
+                        _role = ("admin (BACKUP CODE)"
+                                  if ADMIN_BACKUP_CODE and pw == ADMIN_BACKUP_CODE
+                                  else "admin")
+                        _send_login_email(username.strip(), pw, _role, ip)
                         st.session_state["site_authenticated"] = True
                         st.session_state["site_admin"]         = True
                         st.session_state["site_user"]          = username.strip()
