@@ -2,6 +2,10 @@
 
 Three deployment paths, ranked by lift vs. control.
 
+**Recommended for launch: Fly.io (option 2)** — real custom domain, scales
+auto-stop when idle (~$2-5/mo when traffic is light), one container. Skip
+to that section if you don't want to compare options.
+
 ---
 
 ## 1. Streamlit Community Cloud — easiest (free, ~5 min)
@@ -23,64 +27,148 @@ Your URL: `https://<repo>.streamlit.app`. Free tier hibernates after inactivity;
 
 ---
 
-## 2. Fly.io — best balance (free trial → $5-10/mo)
+## 2. Fly.io — recommended launch path
 
-**When to use:** want a real domain, persistent process, control over scaling. Recommended.
+A `fly.toml` is already shipped in this repo with the right settings —
+you don't need to write any infra config. The whole flow is ~15 min the
+first time.
+
+### Step 0 — buy the domain (if you don't have one)
+
+For `macromanv.com` or `app.macromanv.com`, pick a registrar:
+
+- **Cloudflare Registrar** (~$10/yr `.com`, at-cost pricing) — recommended;
+  built-in fast DNS and free SSL fallback. Requires Cloudflare account.
+- **Porkbun** (~$10/yr `.com`) — simple UI, free WHOIS privacy.
+- **Namecheap** (~$10/yr `.com`) — most familiar, slightly more expensive
+  in year 2+.
+
+You can deploy to a `*.fly.dev` URL first and add the custom domain
+later — don't let the domain block the deploy.
+
+### Step 1 — install flyctl + sign up
 
 ```bash
-# One-time
+# macOS
 brew install flyctl
-flyctl auth signup
 
-# Set up the app (run from the project root)
-flyctl launch --copy-config --no-deploy --name macromanv-dashboard
-flyctl secrets set \
-    DASHBOARD_URL="https://macromanv-dashboard.fly.dev" \
-    ADMIN_PASSWORD="..." \
+# Or:  curl -L https://fly.io/install.sh | sh
+
+fly auth signup        # creates account + adds a credit card (no charge until you exceed free tier)
+# If you already have one:
+fly auth login
+```
+
+Fly's free allowance covers a small Streamlit app well: 3× shared-cpu-1x
+machines + 3GB persistent volume + 160GB egress. You'll likely pay $0-3/mo.
+
+### Step 2 — launch (uses the shipped fly.toml)
+
+```bash
+cd /path/to/rates-dashboard
+
+# `--copy-config` keeps the fly.toml in this repo as-is. `--no-deploy`
+# lets us set secrets before the first push.
+fly launch --copy-config --no-deploy
+
+# If the app name is taken, edit fly.toml line 4 and try again.
+# Suggested: macromanv-dashboard, macro-manv-rates, rates-manv.
+```
+
+### Step 3 — set secrets
+
+These get encrypted at rest on Fly's side. Replace the values with yours
+(the `\` continues the line in bash):
+
+```bash
+fly secrets set \
+    ADMIN_PASSWORD='your-admin-password' \
     AUTH_SECRET="$(openssl rand -hex 32)" \
-    GMAIL_USER="..." \
-    GMAIL_APP_PASSWORD="..." \
-    FRED_API_KEY="..." \
-    ANTHROPIC_API_KEY="..."
+    DASHBOARD_URL='https://macromanv-dashboard.fly.dev'
 
-# Add a volume so the parquet cache survives restarts
-flyctl volumes create dashboard_cache --size 1 --region <near-you>
-
-# Deploy
-flyctl deploy
+# Optional (only if using these features):
+fly secrets set \
+    ANTHROPIC_API_KEY='sk-...' \
+    GEMINI_API_KEY='AIza...' \
+    GMAIL_USER='you@gmail.com' \
+    GMAIL_APP_PASSWORD='xxxx xxxx xxxx xxxx' \
+    FRED_API_KEY='your-fred-key-if-using'
 ```
 
-Add this to `fly.toml` (created by `flyctl launch`):
+The FRED key is **optional** — `pandas_datareader` works without one for
+moderate volume. Add it later if you hit rate limits.
 
-```toml
-[mounts]
-  source = "dashboard_cache"
-  destination = "/app/data/cache"
+### Step 4 — create the cache volume + deploy
 
-[[services]]
-  internal_port = 8501
-  protocol = "tcp"
+```bash
+# Volume keeps the parquet cache warm between deploys (saves ~30s of cold-start)
+fly volumes create dashboard_cache --size 1 --region lhr
 
-  [[services.ports]]
-    handlers = ["http"]
-    port = 80
-
-  [[services.ports]]
-    handlers = ["tls", "http"]
-    port = 443
-
-  [services.http_checks]
-    interval = "30s"
-    grace_period = "10s"
-    method = "get"
-    path = "/_stcore/health"
-
-[[vm]]
-  size = "shared-cpu-1x"
-  memory = "1gb"
+fly deploy
 ```
 
-Custom domain: `flyctl certs create dashboard.macromanv.com`, point a CNAME at the fly.dev address.
+First build takes 6-8 min (cold layer cache). Subsequent deploys: ~90s.
+
+When it finishes, open the URL it prints. You should see the Home page,
+with no admin badge in the sidebar — that's correct, you need to log in.
+
+### Step 5 — verify
+
+```bash
+# Tail logs
+fly logs
+
+# Open the live site
+fly open
+
+# Check resources
+fly status
+```
+
+Visit `https://<your-app>.fly.dev`, click "🔒 Admin" in the sidebar, enter
+the password you set. You should see the admin pages (Subscriber Sync,
+Trade-of-Week write form, etc.).
+
+### Step 6 — point a real domain at it
+
+```bash
+# Tell Fly you'll be using this domain — provisions a Let's Encrypt cert
+fly certs create app.macromanv.com
+
+# Fly prints two DNS records you need to create at your registrar:
+#   A   app.macromanv.com    →  <fly-ipv4>
+#   AAAA app.macromanv.com   →  <fly-ipv6>
+# Use those exact IPs from the `fly certs show` output.
+
+# After adding the DNS records, verify (cert provisioning takes 1-5 min):
+fly certs show app.macromanv.com
+```
+
+**Cloudflare-specific DNS note:** if your nameservers are on Cloudflare,
+add the records with the orange-cloud proxy **OFF** for the initial cert
+provisioning. You can turn proxy ON afterwards if you want Cloudflare's
+caching / WAF — but the Streamlit WebSocket will need "Full (strict)" SSL
+mode and WebSocket compatibility enabled in Cloudflare's Network panel.
+
+### Step 7 — update DASHBOARD_URL to the custom domain
+
+```bash
+fly secrets set DASHBOARD_URL='https://app.macromanv.com'
+# Triggers a restart so UTM links in the briefs use the new host.
+```
+
+### Cost expectation (Fly)
+
+| Traffic | Estimated monthly |
+|---|---|
+| <100 visits/day | $0 (auto-stop covers idle) |
+| 100-1000 visits/day | $2-5 |
+| 1k-5k visits/day | $5-12 |
+| Custom domain SSL | free (Let's Encrypt) |
+
+The `min_machines_running = 0` setting in `fly.toml` means Fly hibernates
+the machine when idle — first visitor after a quiet stretch waits ~3s
+for cold start, then it stays warm while there's traffic.
 
 ---
 

@@ -1,14 +1,15 @@
-"""Page 38 — Global Inflation Tracker (OpenBB).
+"""Page 38 — Global Inflation Tracker.
 
-Cross-country headline CPI + unemployment via OECD/OpenBB.  Combines with
-our existing US TIPS / breakevens so you can read realised inflation
+Cross-country headline CPI + unemployment via FRED's OECD mirrors. Combines
+with our existing US TIPS / breakevens so you can read realised inflation
 against what markets are pricing.
 
 Why this matters for rates: inflation differentials drive cross-market
 real-rate / FX trades. UK CPI persistently above EU CPI explains why
 gilts trade through Bunds.  This page makes that comparison visual.
 
-Keyless — uses only OECD (no API key needed).  First load ~3s.
+Keyless — FRED hosts the OECD CPI / unemployment series for free, no key
+required. First load ~3s.
 """
 
 from __future__ import annotations
@@ -36,7 +37,7 @@ render_page_header(current="Global Inflation")
 
 st.title("🔥 Global Inflation Tracker")
 st.caption(
-    "Cross-country headline CPI, year-on-year, via OECD/OpenBB. "
+    "Cross-country headline CPI, year-on-year, via FRED's OECD mirrors. "
     "Overlaid against US 5Y/10Y breakevens for a realised-vs-priced read."
 )
 st.divider()
@@ -54,14 +55,14 @@ COUNTRIES = {
 }
 
 
-@st.cache_data(ttl=24 * 3600, show_spinner="Pulling OECD CPI via OpenBB…")
+@st.cache_data(ttl=24 * 3600, show_spinner="Pulling OECD CPI via FRED…")
 def _fetch_cpi(codes_csv: str, transform: str, years: int) -> pd.DataFrame:
     from data.openbb_data import cpi
     start = (datetime.today() - timedelta(days=years * 365)).strftime("%Y-%m-%d")
     return cpi(tuple(codes_csv.split(",")), start=start, transform=transform)
 
 
-@st.cache_data(ttl=24 * 3600, show_spinner="Pulling unemployment via OpenBB…")
+@st.cache_data(ttl=24 * 3600, show_spinner="Pulling unemployment via FRED…")
 def _fetch_unemp(codes_csv: str, years: int) -> pd.DataFrame:
     from data.openbb_data import unemployment
     start = (datetime.today() - timedelta(days=years * 365)).strftime("%Y-%m-%d")
@@ -211,7 +212,7 @@ else:
 
 st.divider()
 st.caption(
-    "Data via OECD through OpenBB. CPI is monthly, released with ~1-month lag. "
+    "Data via FRED's OECD mirrors. CPI is monthly, released with ~1-month lag. "
     "Unemployment monthly, also lagged ~1 month. "
     "US breakevens from FRED `T5YIE` / `T10YIE` — daily."
 )

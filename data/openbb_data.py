@@ -1,19 +1,29 @@
-"""OpenBB wrapper — single import surface for OpenBB-sourced datasets.
+"""Macro / curve data fetcher — direct APIs, no OpenBB dependency.
 
-Why a wrapper:
-  • OpenBB's `obb` object boots ~1.5s the first time it's imported (router
-    cache + extension loading). We do that once here, lazy-style.
-  • Many endpoints have multiple providers (federal_reserve, fred, fmp, ...).
-    The wrapper picks a sensible free-no-key default and lets callers override.
-  • All functions return tidy pandas DataFrames keyed by date.  No pydantic
-    plumbing leaks into the dashboard pages.
+Replaces the previous OpenBB-backed wrapper. Same module name, same
+function signatures, same DataFrame contracts — consuming pages don't
+need to change.
 
-Usage:
-    from data.openbb_data import yield_curve_us, sovereign_cds, oecd_cli, bls_jolts
+Why this rewrite:
+  • OpenBB Platform is AGPLv3. Running it inside a paid Streamlit
+    product triggers the network-service clause: either open-source
+    your stack OR buy a commercial license.
+  • Every endpoint we actually used has a free, license-clean direct
+    source. So we just call those directly.
 
-    df = yield_curve_us()              # one tenor per row, latest snapshot
-    cds = sovereign_cds("DE", "FR")    # daily 5Y CDS spreads
-    cli = oecd_cli(["G7", "US", "EA"]) # composite leading indicators
+Data sources (all free, public, no AGPL exposure):
+  • pandas_datareader → FRED (US Fed + OECD mirrors) — no key needed
+  • Japan MoF JGB daily CSV — public, no key
+  • Existing ECB / BoE / TreasuryDirect fetchers in `data/fetchers/`
+
+Coverage trade-off:
+  • US curve: full (FRED constant-maturity DGS* series)
+  • Japan curve: full (MoF daily CSV)
+  • Germany / euro-area: consumers fall back to the existing ECB fetcher
+    (this module returns empty for them and the pages handle it).
+  • China / Korea / Singapore / Taiwan sovereign curves were sourced via
+    OpenBB's econdb provider. Replacing those needs dedicated per-country
+    integrations — not blocking launch, returns empty for now.
 """
 
 from __future__ import annotations
@@ -28,91 +38,159 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
-@functools.lru_cache(maxsize=1)
-def _obb():
-    """Lazy import — first call takes ~1-2s (router/extension build)."""
-    import warnings
-    warnings.filterwarnings("ignore")
-    from openbb import obb
-    return obb
-
-
-def _df(result) -> pd.DataFrame:
-    """Tidy OpenBB OBBject → DataFrame, datetime-indexed if there's a date col."""
-    try:
-        df = result.to_dataframe()
-    except Exception:
-        try:
-            return pd.DataFrame(result.results)
-        except Exception:
-            return pd.DataFrame()
-    # Reset / re-index on the date column if needed
-    for col in ("date", "Date", "datetime"):
-        if col in df.columns:
-            df = df.set_index(col)
-            break
-    if not isinstance(df.index, pd.DatetimeIndex):
-        try:
-            df.index = pd.to_datetime(df.index)
-        except Exception:
-            pass
-    return df
-
-
 def _safe(fn):
-    """Decorator: swallow OpenBB errors, return empty df + log."""
+    """Decorator: swallow errors, return empty DataFrame, log warning.
+    Lets the dashboard pages handle missing data gracefully."""
     @functools.wraps(fn)
     def _wrap(*a, **kw):
         try:
             return fn(*a, **kw)
         except Exception as e:
-            logger.warning("OpenBB call %s failed: %s", fn.__name__, e)
+            logger.warning("%s failed: %s", fn.__name__, e)
             return pd.DataFrame()
     return _wrap
 
 
-# ── Yield curves ─────────────────────────────────────────────────────────
+# ── FRED helper (pandas_datareader, no key required) ─────────────────────
+
+def _fred_series(sid: str, start: Optional[pd.Timestamp] = None) -> pd.Series:
+    """Pull a single FRED series via pandas_datareader (no API key required).
+    Returns empty Series on any failure — let callers degrade gracefully."""
+    import warnings; warnings.filterwarnings("ignore")
+    try:
+        import pandas_datareader.data as web
+    except ImportError:
+        logger.warning("pandas_datareader not installed — FRED unavailable")
+        return pd.Series(dtype=float)
+    start = start or (datetime.today() - timedelta(days=10 * 365))
+    try:
+        s = web.DataReader(sid, "fred", start, datetime.today())
+        if isinstance(s, pd.DataFrame):
+            s = s.iloc[:, 0]
+        return s.dropna()
+    except Exception as e:
+        logger.warning("FRED series %s failed: %s", sid, e)
+        return pd.Series(dtype=float)
+
+
+# ── US Treasury yield curve ──────────────────────────────────────────────
+
+# FRED constant-maturity Treasury series IDs, keyed by years.
+FRED_UST_TENORS = {
+    1 / 12: "DGS1MO",
+    0.25:   "DGS3MO",
+    0.5:    "DGS6MO",
+    1:      "DGS1",
+    2:      "DGS2",
+    3:      "DGS3",
+    5:      "DGS5",
+    7:      "DGS7",
+    10:     "DGS10",
+    20:     "DGS20",
+    30:     "DGS30",
+}
+
 
 @_safe
 def yield_curve_us(date: Optional[str] = None) -> pd.DataFrame:
-    """Today's US Treasury par yield curve from the Fed (free, no key)."""
-    kw = {"provider": "federal_reserve"}
-    if date:
-        kw["date"] = date
-    return _df(_obb().fixedincome.government.yield_curve(**kw))
+    """US Treasury par yield curve from FRED's constant-maturity series.
+
+    Returns DataFrame with `maturity_years` + `rate` columns; `rate` is
+    in decimal form (0.045 = 4.5%) to match the previous OpenBB return."""
+    target = pd.to_datetime(date) if date else None
+    rows = []
+    for years, sid in FRED_UST_TENORS.items():
+        s = _fred_series(sid)
+        if s.empty:
+            continue
+        if target is not None:
+            s = s[s.index <= target]
+            if s.empty:
+                continue
+        rows.append({"maturity_years": float(years),
+                     "rate":            float(s.iloc[-1]) / 100})
+    if not rows:
+        return pd.DataFrame()
+    return pd.DataFrame(rows).sort_values("maturity_years").reset_index(drop=True)
 
 
-# Countries econdb supports for yield_curve (keyless).
-# Hong Kong is listed but populated empty as of 2026-05 — use Singapore as a
-# practical HK proxy (currency-board market with similar dynamics).
-ECONDB_YIELD_COUNTRIES = [
-    "australia", "canada", "china", "hong_kong", "india", "japan", "mexico",
-    "new_zealand", "russia", "saudi_arabia", "singapore", "south_africa",
-    "south_korea", "taiwan", "thailand", "united_kingdom", "united_states",
-]
+# ── Japan JGB curve via MoF daily CSV ────────────────────────────────────
+
+@_safe
+def _japan_yield_curve(date: Optional[str] = None) -> pd.DataFrame:
+    """JGB yield curve from Japan MoF daily CSV (public, no key).
+
+    The MoF file uses Shift-JIS encoding, Reiwa-era dates (e.g. `R8.5.13`
+    = Reiwa year 8, May 13 = 2026-05-13), and kanji column headers like
+    `1年` (year). Tenor order is fixed: 1Y, 2Y, ..., 10Y, 15Y, 20Y, 25Y,
+    30Y, 40Y."""
+    url = "https://www.mof.go.jp/jgbs/reference/interest_rate/jgbcm.csv"
+    # Header is on line 2; first line is just a Japanese title.
+    df = pd.read_csv(url, encoding="cp932", skiprows=1, on_bad_lines="skip")
+    if df.empty or len(df.columns) < 2:
+        return pd.DataFrame()
+    # Reiwa era → Gregorian: R{Y}.{M}.{D}  ->  (2018 + Y, M, D)
+    def _reiwa(s: str):
+        s = str(s).strip()
+        if not s.startswith("R"):
+            return pd.NaT
+        try:
+            y, m, d = s[1:].split(".")
+            return pd.Timestamp(2018 + int(y), int(m), int(d))
+        except Exception:
+            return pd.NaT
+    date_col = df.columns[0]
+    df[date_col] = df[date_col].apply(_reiwa)
+    df = df.dropna(subset=[date_col]).set_index(date_col).sort_index()
+    # Tenors in fixed positional order (jgbcm.csv schema):
+    tenors_years = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20, 25, 30, 40]
+    value_cols = df.columns[: len(tenors_years)]
+    for c in value_cols:
+        df[c] = pd.to_numeric(df[c], errors="coerce")
+    target = pd.to_datetime(date) if date else df.index.max()
+    candidates = df.loc[df.index <= target]
+    if candidates.empty:
+        return pd.DataFrame()
+    snap = candidates.iloc[-1]
+    rows = []
+    for yrs, col in zip(tenors_years, value_cols):
+        val = snap[col]
+        if pd.isna(val):
+            continue
+        rows.append({"maturity_years": float(yrs), "rate": float(val) / 100})
+    return (pd.DataFrame(rows).sort_values("maturity_years").reset_index(drop=True)
+            if rows else pd.DataFrame())
 
 
 @_safe
 def yield_curve(country: str = "united_states",
                 date: Optional[str] = None) -> pd.DataFrame:
-    """Sovereign yield curve for any econdb-supported country (keyless).
+    """Sovereign yield curve for the supported keyless sources.
 
-    Returns DataFrame indexed by maturity_years with a 'rate' column.
-    Empty if the provider has no data for the country/date.
+    Currently wired: united_states (FRED), japan (MoF).
+    Other countries return empty — consuming pages have their own
+    fallbacks (ECB for euro-area, BoE for UK).
     """
-    kw = {"provider": "econdb", "country": country}
-    if date: kw["date"] = date
-    return _df(_obb().fixedincome.government.yield_curve(**kw))
+    if country == "united_states":
+        return yield_curve_us(date=date)
+    if country == "japan":
+        return _japan_yield_curve(date=date)
+    return pd.DataFrame()
 
 
 @_safe
 def asia_yield_snapshot(countries: Iterable[str] = ("china", "japan",
-                                                      "south_korea",
-                                                      "singapore", "taiwan"),
+                                                     "south_korea",
+                                                     "singapore", "taiwan"),
                         date: Optional[str] = None) -> pd.DataFrame:
-    """Latest sovereign yield curves across Asian markets.  Tidy long form:
-    one row per (country, maturity_years, rate)."""
-    out: list = []
+    """Latest sovereign yield curves across Asian markets.
+
+    Note: only Japan has a direct keyless source wired up. China / Korea /
+    Singapore / Taiwan previously came through OpenBB's econdb provider
+    and need their own integrations. Returns Japan-only until those are
+    added; the Global Curves page handles the partial coverage gracefully.
+    """
+    out = []
     for c in countries:
         df = yield_curve(c, date=date)
         if df.empty:
@@ -120,108 +198,239 @@ def asia_yield_snapshot(countries: Iterable[str] = ("china", "japan",
         df = df.copy()
         df["country"] = c.replace("_", " ").title()
         out.append(df)
-    return pd.concat(out) if out else pd.DataFrame()
+    return pd.concat(out, ignore_index=True) if out else pd.DataFrame()
 
 
-@_safe
-def yield_curve_history(country: str = "united_states",
-                        start: Optional[str] = None) -> pd.DataFrame:
-    """OECD historical yield curve (long-rate) for a country."""
-    start = start or (datetime.today() - timedelta(days=5 * 365)).strftime("%Y-%m-%d")
-    return _df(_obb().economy.long_term_interest_rate(country=country,
-                                                       start_date=start,
-                                                       provider="oecd"))
+# ── OECD-derived macro via FRED mirrors ──────────────────────────────────
+
+# FRED hosts the canonical OECD CLI series under the pattern
+# `{ISO3}LOLITONOSTSAM` — same data, no auth.
+OECD_CLI_FRED = {
+    "united_states":  "USALOLITONOSTSAM",
+    "g7":             "G7LOLITONOSTSAM",
+    "euro_area":      "EA19LOLITONOSTSAM",
+    "germany":        "DEULOLITONOSTSAM",
+    "japan":          "JPNLOLITONOSTSAM",
+    "united_kingdom": "GBRLOLITONOSTSAM",
+    "france":         "FRALOLITONOSTSAM",
+    "canada":         "CANLOLITONOSTSAM",
+    "china":          "CHNLOLITONOSTSAM",
+}
+
+# Consuming pages match on this label set (title-cased, spaces).
+COUNTRY_LABEL = {
+    "united_states":  "United States",
+    "g7":             "G7",
+    "euro_area":      "Euro Area",
+    "germany":        "Germany",
+    "japan":          "Japan",
+    "united_kingdom": "United Kingdom",
+    "france":         "France",
+    "canada":         "Canada",
+    "china":          "China",
+    "australia":      "Australia",
+    "south_korea":    "South Korea",
+    "singapore":      "Singapore",
+    "taiwan":         "Taiwan",
+}
 
 
-# Note on key-required endpoints (deferred — need user-supplied keys):
-#   • sovereign CDS               → needs fmp_api_key or tradingeconomics_key
-#   • fixedincome.spreads.tcm     → needs fred_api_key
-#   • fixedincome.government.tips_yields → needs fred_api_key
-#   • bls JOLTS via OpenBB        → needs bls_api_key (FRED has JTSJOL/JTSQUR/JTSLDR free)
-#   • imf_indicators              → needs subscription
-# All below endpoints work keyless against public providers.
+def _series_to_long(series_dict: dict,
+                    label_map: Optional[dict] = None) -> pd.DataFrame:
+    """Stack a {country_code: Series} mapping into long-form DataFrame:
+    date index, `country` (label) + `value` columns. Matches OpenBB's
+    OECD return shape so consuming pages don't need to change."""
+    label_map = label_map or {}
+    frames = []
+    for code, s in series_dict.items():
+        if s.empty:
+            continue
+        label = label_map.get(code, code.replace("_", " ").title())
+        f = s.to_frame("value")
+        f["country"] = label
+        f.index.name = "date"
+        frames.append(f)
+    return pd.concat(frames).sort_index() if frames else pd.DataFrame()
 
-
-# ── OECD composite leading indicators ────────────────────────────────────
 
 @_safe
 def oecd_cli(countries: Iterable[str] = ("united_states", "g7"),
              start: Optional[str] = None) -> pd.DataFrame:
-    """OECD Composite Leading Indicator — recession-probability proxy.
+    """OECD Composite Leading Indicator via FRED mirrors (level, 100 = trend)."""
+    start_dt = (pd.to_datetime(start) if start
+                else datetime.today() - timedelta(days=10 * 365))
+    series = {}
+    for c in countries:
+        sid = OECD_CLI_FRED.get(c)
+        if not sid:
+            continue
+        s = _fred_series(sid, start=start_dt)
+        if not s.empty:
+            series[c] = s[s.index >= start_dt]
+    return _series_to_long(series, COUNTRY_LABEL)
 
-    Valid country codes: united_states, united_kingdom, germany, france,
-    italy, japan, china, india, canada, brazil, mexico, australia,
-    south_korea, indonesia, spain, south_africa, turkey, g7, g20, asia5,
-    europe4, north_america, all.
-    """
-    start = start or (datetime.today() - timedelta(days=10 * 365)).strftime("%Y-%m-%d")
-    return _df(_obb().economy.composite_leading_indicator(
-        country=",".join(countries), start_date=start, provider="oecd",
-    ))
 
+# CPI: pull the index level from FRED then compute YoY / MoM ourselves so
+# callers get a uniform transform parameter regardless of source series.
+OECD_CPI_INDEX_FRED = {
+    "united_states":  "CPIAUCSL",
+    "euro_area":      "CP0000EZ19M086NEST",  # Eurostat HICP via FRED
+    "united_kingdom": "GBRCPIALLMINMEI",
+    "japan":          "JPNCPIALLMINMEI",
+    "germany":        "DEUCPIALLMINMEI",
+    "france":         "FRACPIALLMINMEI",
+    "canada":         "CANCPIALLMINMEI",
+}
 
-# ── OECD multi-country macro (keyless) ───────────────────────────────────
 
 @_safe
-def cpi(countries: Iterable[str] = ("united_states", "euro_area", "united_kingdom"),
+def cpi(countries: Iterable[str] = ("united_states", "euro_area",
+                                      "united_kingdom"),
         start: Optional[str] = None,
         transform: str = "yoy") -> pd.DataFrame:
-    """Headline CPI across countries. transform: 'yoy' (default), 'mom', 'index'."""
-    start = start or (datetime.today() - timedelta(days=5 * 365)).strftime("%Y-%m-%d")
-    return _df(_obb().economy.cpi(
-        country=",".join(countries),
-        transform=transform,
-        start_date=start,
-    ))
+    """Headline CPI by country via FRED. transform: 'yoy' | 'mom' | 'index'."""
+    start_dt = (pd.to_datetime(start) if start
+                else datetime.today() - timedelta(days=5 * 365))
+    # Pull ~13 extra months so YoY at start_dt has a real baseline.
+    pull_start = start_dt - timedelta(days=400) if transform == "yoy" else start_dt
+    series = {}
+    for c in countries:
+        sid = OECD_CPI_INDEX_FRED.get(c)
+        if not sid:
+            continue
+        s = _fred_series(sid, start=pull_start)
+        if s.empty:
+            continue
+        if transform == "yoy":
+            s = s.pct_change(12) * 100
+        elif transform == "mom":
+            s = s.pct_change() * 100
+        # 'index' → pass through
+        s = s.dropna()
+        s = s[s.index >= start_dt]
+        if not s.empty:
+            series[c] = s
+    return _series_to_long(series, COUNTRY_LABEL)
+
+
+# Harmonised unemployment rates (OECD) mirrored on FRED.
+UNEMPL_FRED = {
+    "united_states":  "UNRATE",
+    "euro_area":      "LRHUTTTTEZM156S",
+    "united_kingdom": "LRHUTTTTGBM156S",
+    "japan":          "LRHUTTTTJPM156S",
+    "germany":        "LRHUTTTTDEM156S",
+    "france":         "LRHUTTTTFRM156S",
+    "canada":         "LRHUTTTTCAM156S",
+}
 
 
 @_safe
 def unemployment(countries: Iterable[str] = ("united_states", "euro_area"),
                  start: Optional[str] = None) -> pd.DataFrame:
-    """OECD-harmonised unemployment rates."""
-    start = start or (datetime.today() - timedelta(days=5 * 365)).strftime("%Y-%m-%d")
-    return _df(_obb().economy.unemployment(
-        country=",".join(countries), start_date=start,
-    ))
+    """Harmonised unemployment rates via FRED OECD mirrors."""
+    start_dt = (pd.to_datetime(start) if start
+                else datetime.today() - timedelta(days=5 * 365))
+    series = {}
+    for c in countries:
+        sid = UNEMPL_FRED.get(c)
+        if not sid:
+            continue
+        s = _fred_series(sid, start=start_dt)
+        if not s.empty:
+            series[c] = s[s.index >= start_dt]
+    return _series_to_long(series, COUNTRY_LABEL)
+
+
+# ── Backwards-compat shims (kept because pages may import them) ──────────
+
+@_safe
+def yield_curve_history(country: str = "united_states",
+                        start: Optional[str] = None) -> pd.DataFrame:
+    """OECD long-term interest-rate history via FRED mirrors."""
+    series_map = {
+        "united_states":  "DGS10",
+        "united_kingdom": "IRLTLT01GBM156N",
+        "germany":        "IRLTLT01DEM156N",
+        "japan":          "IRLTLT01JPM156N",
+        "euro_area":      "IRLTLT01EZM156N",
+        "france":         "IRLTLT01FRM156N",
+        "canada":         "IRLTLT01CAM156N",
+    }
+    sid = series_map.get(country, "DGS10")
+    start_dt = (pd.to_datetime(start) if start
+                else datetime.today() - timedelta(days=5 * 365))
+    s = _fred_series(sid, start=start_dt)
+    return s.to_frame("rate") if not s.empty else pd.DataFrame()
 
 
 @_safe
 def money_measures(start: Optional[str] = None) -> pd.DataFrame:
-    """US monetary aggregates (M1, M2, M2 components) via federal_reserve."""
-    start = start or (datetime.today() - timedelta(days=5 * 365)).strftime("%Y-%m-%d")
-    return _df(_obb().economy.money_measures(start_date=start))
+    """US M1 / M2 from FRED."""
+    start_dt = (pd.to_datetime(start) if start
+                else datetime.today() - timedelta(days=5 * 365))
+    cols = {}
+    for sid, label in [("M1SL", "M1"), ("M2SL", "M2")]:
+        s = _fred_series(sid, start=start_dt)
+        if not s.empty:
+            cols[label] = s
+    return pd.DataFrame(cols) if cols else pd.DataFrame()
 
 
 @_safe
 def house_price_index(countries: Iterable[str] = ("united_states",),
                       start: Optional[str] = None) -> pd.DataFrame:
-    """OECD harmonised house price index."""
-    start = start or (datetime.today() - timedelta(days=5 * 365)).strftime("%Y-%m-%d")
-    return _df(_obb().economy.house_price_index(
-        country=",".join(countries), start_date=start,
-    ))
+    """House price index by country via FRED."""
+    hpi = {
+        "united_states":  "CSUSHPISA",
+        "united_kingdom": "QGBR628BIS",
+        "germany":        "QDEN628BIS",
+        "japan":          "QJPN628BIS",
+        "france":         "QFRN628BIS",
+    }
+    start_dt = (pd.to_datetime(start) if start
+                else datetime.today() - timedelta(days=5 * 365))
+    series = {}
+    for c in countries:
+        sid = hpi.get(c)
+        if not sid:
+            continue
+        s = _fred_series(sid, start=start_dt)
+        if not s.empty:
+            series[c] = s
+    return _series_to_long(series, COUNTRY_LABEL)
 
 
 @_safe
-def share_price_index(countries: Iterable[str] = ("united_states", "euro_area"),
+def share_price_index(countries: Iterable[str] = ("united_states",
+                                                    "euro_area"),
                       start: Optional[str] = None) -> pd.DataFrame:
-    """OECD share-price index — cross-country equity benchmark."""
-    start = start or (datetime.today() - timedelta(days=5 * 365)).strftime("%Y-%m-%d")
-    return _df(_obb().economy.share_price_index(
-        country=",".join(countries), start_date=start,
-    ))
+    """Share price index via FRED (US only — others need direct sources)."""
+    sp = {"united_states": "SP500"}
+    start_dt = (pd.to_datetime(start) if start
+                else datetime.today() - timedelta(days=5 * 365))
+    series = {}
+    for c in countries:
+        sid = sp.get(c)
+        if not sid:
+            continue
+        s = _fred_series(sid, start=start_dt)
+        if not s.empty:
+            series[c] = s
+    return _series_to_long(series, COUNTRY_LABEL)
 
 
 # ── Health check ─────────────────────────────────────────────────────────
 
 def ping() -> dict:
-    """Return which OpenBB extensions are loaded — useful for debugging."""
+    """Confirm FRED is reachable. Replaces the previous OpenBB ping."""
     try:
-        obb = _obb()
+        s = _fred_series("DGS10",
+                          start=datetime.today() - timedelta(days=30))
         return {
-            "ok": True,
-            "extensions": [str(x) for x in obb.coverage.commands().keys()][:10]
-            if hasattr(obb, "coverage") else ["?"],
+            "ok":           not s.empty,
+            "fred_latest":  s.index.max().strftime("%Y-%m-%d") if not s.empty else None,
+            "source":       "FRED via pandas_datareader (no key required)",
         }
     except Exception as e:
         return {"ok": False, "error": str(e)}

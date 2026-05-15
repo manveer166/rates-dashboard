@@ -389,13 +389,30 @@ def main():
     render_sidebar_controls()
     render_page_header(current="Home")
 
-    st.title("🏠 Home")
+    st.title("🏠 Macro Manv — Rates Dashboard")
     st.markdown(
-        '<p style="color:var(--c-text-2);font-size:15px;margin-top:-4px;">'
-        "US Treasury · EUR / GBP / CHF · SOFR Swaps · Credit Spreads"
+        '<p style="color:var(--c-text-2);font-size:15px;margin-top:-4px;'
+        'margin-bottom:8px;">'
+        "Live yield curves, the scanner, and the RV tools rates desks pay six "
+        "figures for. <b>Free for the data, paid for the alpha.</b>"
         "</p>",
         unsafe_allow_html=True,
     )
+
+    # ── Top-of-page CTA strip — gives a new visitor a clear next move ─────
+    cta1, cta2, cta3, _ = st.columns([1.1, 1.1, 1.1, 4])
+    with cta1:
+        st.link_button("📰 Trade of the Week",
+                       "/Trade_of_the_Week",
+                       use_container_width=True)
+    with cta2:
+        st.link_button("🌅 Morning Brief",
+                       "/Morning",
+                       use_container_width=True)
+    with cta3:
+        st.link_button("💎 Pricing",
+                       "/Pricing",
+                       use_container_width=True)
 
     # ── Stale-cache banner (admin sees refresh button) ─────────────────────
     from dashboard.state import render_cache_freshness_banner
@@ -635,7 +652,8 @@ def main():
     st.caption(
         f"Data range: **{df.index[0].strftime('%d %b %Y')}** → **{df.index[-1].strftime('%d %b %Y')}** "
         f"| {len(df):,} trading days | {df.shape[1]} series "
-        f"| Sources: US Treasury · FRED (ICE SOFR, ICE BofA, OECD)"
+        f"| Sources: US Treasury · FRED (ICE SOFR, ICE BofA, OECD mirrors) "
+        f"· ECB SDW · BoE IADB · Japan MoF · CFTC"
     )
 
     # ── Tutorial (must be LAST — renders after all content) ────────────

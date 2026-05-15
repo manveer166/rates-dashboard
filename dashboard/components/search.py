@@ -69,7 +69,7 @@ PAGE_INDEX: list[tuple[str, str, str, list[str]]] = [
     ("Trade Journal",   "/Trade_Journal",     "📓",
         ["journal", "notes", "log", "diary", "annotations", "thesis", "post-mortem"]),
     ("Global Macro",    "/Global_Macro",      "🌐",
-        ["macro", "oecd", "cli", "leading", "jolts", "bls", "openbb", "global", "recession"]),
+        ["macro", "oecd", "cli", "leading", "jolts", "bls", "fred", "global", "recession"]),
     ("Global Inflation","/Global_Inflation",  "🔥",
         ["inflation", "cpi", "headline", "core", "breakeven", "country", "deflation", "unemployment"]),
 ]

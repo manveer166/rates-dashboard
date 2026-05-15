@@ -24,8 +24,15 @@ init_session_state()
 render_sidebar_controls()
 render_page_header(current="Pricing")
 
-st.title("💎 Macro Manv Tiers")
-st.caption("Four tiers, one login. Pick what fits your workflow.")
+st.title("💎 Pricing")
+st.markdown(
+    '<p style="color:var(--c-text-2);font-size:15px;margin-top:-4px;'
+    'margin-bottom:14px;">'
+    "One subscription, one login. Free for the data — paid for the "
+    "scanner, backtester, and the rest of the trader stack."
+    "</p>",
+    unsafe_allow_html=True,
+)
 st.divider()
 
 
@@ -219,10 +226,11 @@ with c4:
         includes_dashboard="pro",
         bullets=[
             "Everything in Pro — same access",
-            "🔒 <b>Price locked for 10 years — for life</b>",
+            "🔒 <b>Price locked for life (10 years)</b>",
+            "💬 Direct line to Macro Manv — ask anything",
             "⚡ Direct line to feature requests",
             "🚀 First access to new pages",
-            "<i>You shipped, the rest of the world hasn't</i>",
+            "<i>For the first 100. Then it's $49 like everyone else.</i>",
         ],
         cta_text="⚡ Lock in $29 →",
         cta_url=SUB_URL_BASE + "founding",
@@ -230,8 +238,7 @@ with c4:
     ), unsafe_allow_html=True)
 
 
-st.write("")
-st.write("")
+st.divider()
 
 
 # ── How tier upgrades work ───────────────────────────────────────────────
@@ -259,10 +266,9 @@ with ec3:
     st.markdown(
         """
         ### Founding lock — for life
-        First 100 subscribers at the $29/mo rate stay there for a
-        **10-year price guarantee** — effectively for life on any active
-        subscription. The rate goes up for everyone after slot 100, but
-        not for you.
+        First 100 subscribers at the $29/mo rate **stay there for life**
+        (10-year price guarantee on any active subscription). The rate
+        goes up for everyone after slot 100, but not for you.
         """
     )
 
@@ -300,7 +306,8 @@ matrix = [
     ("• 🧮 PCA Backtest — strategy on PCs",               "—",        "—",        "✓",       "✓"),
     ("• 🌊 Vol Surface",                                  "—",        "—",        "✓",       "✓"),
     ("**Founding-only perks**",                           "—",        "—",        "—",       "✓"),
-    ("• 🔒 Price locked for 10 years (for life)",         "—",        "—",        "—",       "✓"),
+    ("• 🔒 Price locked for life (10 years)",             "—",        "—",        "—",       "✓"),
+    ("• 💬 Direct line to Macro Manv",                    "—",        "—",        "—",       "✓"),
     ("• ⚡ Direct feature-request line",                  "—",        "—",        "—",       "✓"),
     ("• 🚀 First access to new pages",                    "—",        "—",        "—",       "✓"),
     ("**Price (monthly)**",                               "**$0**",   "**$15**",  "**$49**", "**$29**"),

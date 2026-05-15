@@ -21,8 +21,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
 
 # OS deps for matplotlib / kaleido / lxml etc.
+# tini → proper PID-1 signal handling so SIGTERM from Fly stops Streamlit cleanly.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      build-essential curl ca-certificates git \
+      build-essential curl ca-certificates git tini \
       libfreetype6 libfontconfig1 \
       libxml2-dev libxslt1-dev \
     && rm -rf /var/lib/apt/lists/*
@@ -54,9 +55,12 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
 RUN useradd -m -u 1000 streamlit && chown -R streamlit:streamlit /app
 USER streamlit
 
+ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["python", "-m", "streamlit", "run", "dashboard/Home.py", \
      "--server.port=8501", "--server.address=0.0.0.0", \
      "--server.headless=true", "--browser.gatherUsageStats=false", \
+     "--server.enableXsrfProtection=false", \
+     "--server.enableCORS=false", \
      "--theme.base=dark", "--theme.primaryColor=#4fc3f7", \
      "--theme.backgroundColor=#0a1628", \
      "--theme.secondaryBackgroundColor=#142847"]

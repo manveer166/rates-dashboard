@@ -227,13 +227,14 @@ st.divider()
 # the currency-board / USD-anchored dynamic.
 st.subheader("🌏 Asian sovereign curves")
 st.caption(
-    "Pulled via OpenBB/econdb (no key). **Hong Kong** is listed in econdb but "
-    "the provider has no daily data — Singapore is the standard practitioner "
-    "proxy for HK rates (both run currency boards anchored to USD)."
+    "Japan via the MoF daily CSV (public, no key). China / Korea / Singapore "
+    "/ Taiwan coverage is being rebuilt on direct sources — currently shows "
+    "Japan only. Hong Kong's public yield curve API has been retired by HKMA; "
+    "Singapore is the standard practitioner proxy when it returns."
 )
 
 
-@st.cache_data(ttl=24 * 3600, show_spinner="Pulling Asia curves via OpenBB…")
+@st.cache_data(ttl=24 * 3600, show_spinner="Pulling Asia curves…")
 def _fetch_asia():
     from data.openbb_data import asia_yield_snapshot
     return asia_yield_snapshot()

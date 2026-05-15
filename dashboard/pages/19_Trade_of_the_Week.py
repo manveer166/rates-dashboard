@@ -30,7 +30,14 @@ render_sidebar_controls()
 render_page_header(current="Trade of the Week")
 
 st.title("🎯 Trade of the Week")
-st.caption("Hand-picked rates trade with thesis, entry level, and tracked PnL.")
+st.markdown(
+    '<p style="color:var(--c-text-2);font-size:15px;margin-top:-4px;'
+    'margin-bottom:8px;">'
+    "One rates trade per week, on the record. Thesis up front, live "
+    "PnL tracked from entry, full archive below. Free tier."
+    "</p>",
+    unsafe_allow_html=True,
+)
 st.divider()
 
 STORE = Path(__file__).parent.parent.parent / "data" / "trade_of_week.json"
@@ -170,7 +177,13 @@ if entries:
             })
         st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 else:
-    st.info("No trade of the week published yet.")
+    st.info(
+        "No trade of the week published yet — the first pick goes live "
+        "this week. **[Subscribe to the Macro Manv Substack](https://"
+        "manveersahota.substack.com/subscribe?utm_source=dashboard&"
+        "utm_medium=totw_empty&utm_campaign=launch)** and you'll get it "
+        "in your inbox the moment it's live."
+    )
 
 # ── Admin write form ──────────────────────────────────────────────────────
 if is_admin():

@@ -1,6 +1,6 @@
-"""Page 37 — Global Macro Tracker (OpenBB-powered).
+"""Page 37 — Global Macro Tracker.
 
-Two things our existing FRED-only pipeline doesn't have:
+Two things our regular curve pipeline doesn't have:
 
   1. OECD Composite Leading Indicators — leading recession-probability proxy
      across G7 countries; published monthly with about a 4-6 week lag.
@@ -8,8 +8,8 @@ Two things our existing FRED-only pipeline doesn't have:
   2. JOLTS — Job Openings/Quits/Layoffs from BLS; Fed-watched, more granular
      than the headline NFP we already track.
 
-Both pulled via the OpenBB wrapper in data/openbb_data.py — no API key needed.
-First page load takes ~2-3s while OpenBB builds its router cache.
+Both pulled direct from FRED (no API key needed) — OECD CLI series are
+mirrored on FRED under the {ISO3}LOLITONOSTSAM pattern.
 """
 
 from __future__ import annotations
@@ -37,8 +37,8 @@ render_page_header(current="Global Macro")
 
 st.title("🌐 Global Macro Tracker")
 st.caption(
-    "OECD leading indicators across G7 + JOLTS labour data, via OpenBB. "
-    "Things our FRED pipeline doesn't cover directly."
+    "OECD leading indicators across G7 + JOLTS labour data, via FRED's "
+    "OECD mirrors. Things our regular curve pipeline doesn't cover directly."
 )
 st.divider()
 
@@ -61,7 +61,7 @@ OECD_COUNTRIES = {
 }
 
 
-@st.cache_data(ttl=24 * 3600, show_spinner="Pulling OECD CLI via OpenBB…")
+@st.cache_data(ttl=24 * 3600, show_spinner="Pulling OECD CLI via FRED…")
 def _fetch_cli(countries_csv: str, years: int) -> pd.DataFrame:
     from data.openbb_data import oecd_cli
     start = (datetime.today() - timedelta(days=years * 365)).strftime("%Y-%m-%d")
@@ -70,7 +70,7 @@ def _fetch_cli(countries_csv: str, years: int) -> pd.DataFrame:
 
 @st.cache_data(ttl=24 * 3600, show_spinner="Pulling JOLTS via FRED…")
 def _fetch_jolts(years: int) -> pd.DataFrame:
-    """JOLTS via FRED (no key). OpenBB's BLS path requires a paid bls_api_key."""
+    """JOLTS via FRED (no key)."""
     import warnings; warnings.filterwarnings("ignore")
     import pandas_datareader.data as web
     start = datetime.today() - timedelta(days=years * 365)
@@ -114,11 +114,11 @@ cli = _fetch_cli(",".join(country_codes), years_back)
 
 if cli.empty:
     st.warning(
-        "OECD CLI unavailable right now (OpenBB upstream issue or rate limit). "
+        "OECD CLI unavailable right now (FRED upstream issue or rate limit). "
         "Retry in a few minutes."
     )
 else:
-    # OpenBB returns long-form: date | country | value
+    # Wrapper returns long-form: date | country | value
     if "country" in cli.columns and "value" in cli.columns:
         fig = go.Figure()
         palette = ["#4fc3f7", "#a78bfa", "#fb923c", "#4ade80", "#f472b6", "#fbbf24", "#f87171"]
@@ -171,9 +171,9 @@ st.caption(
 
 jolts = _fetch_jolts(5)
 if jolts.empty:
-    st.warning("JOLTS unavailable from OpenBB right now.")
+    st.warning("JOLTS unavailable right now (FRED returned no data).")
 else:
-    # OpenBB returns long-form with symbol column
+    # FRED returns long-form with symbol column
     if "symbol" in jolts.columns and "value" in jolts.columns:
         labels = {
             "JTSJOL": ("Job openings (thousands)", "#4fc3f7"),
@@ -201,7 +201,6 @@ else:
 
 st.divider()
 st.caption(
-    "Data via [OpenBB](https://openbb.co). Cached for 24h — first load takes "
-    "~2-3s as OpenBB's router warms up. Same data is available directly via "
-    "OECD / BLS APIs if you want to bypass OpenBB later."
+    "Data via FRED (Federal Reserve Economic Data) — OECD series are mirrored "
+    "there for free. Cached for 24h — typical first load is ~2-3s."
 )
