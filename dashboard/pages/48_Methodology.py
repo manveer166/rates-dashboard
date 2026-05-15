@@ -189,15 +189,72 @@ $\\Delta t$ is the holding period. The curve is held **static** during
 rolldown — i.e. it's a deterministic "if the curve doesn't move, this
 is what you earn from time passing" calculation.
 
-**Known approximations:**
+**In the Backtester**, carry is now **path-dependent**: recomputed every
+day from the prevailing curve, not just at entry. This is the right thing
+for long backtest windows because a position held through a regime change
+earns different daily carry as the curve shape evolves. The daily-carry
+chart on the Backtester page shows the path explicitly.
 
-- Funding rate: we use SOFR (or the current overnight reference) for
-  all carry calcs. A real desk would use trade-specific repo or
-  collateral curves. For broad-market screens, SOFR is close enough.
-- Mean reversion: the Trade Decomposition page adds an optional
-  mean-reversion term computed as `z × σ × 0.5` (half-reversion over the
-  holding period). This is a **heuristic** — not regime-fit and not
-  derived from empirical decay rates.
+**Funding rate**: we use SOFR (or the current overnight reference) for
+all carry calcs. A real desk would use trade-specific repo or collateral
+curves. For broad-market screens this is close enough; for size, you'd
+want the trade-specific curve.
+"""
+)
+st.divider()
+
+
+# ── Mean reversion (Ornstein-Uhlenbeck) ──────────────────────────────────
+st.subheader("4b. Mean reversion — empirically fitted")
+st.markdown(
+    """
+The previous 50%-per-year heuristic has been replaced with a real
+Ornstein-Uhlenbeck fit per trade. We assume each series (an outright
+yield, a conventional curve spread, or a fly) follows:
+"""
+)
+st.latex(r"""
+dX_t \;=\; \theta\,(\mu - X_t)\,dt \;+\; \sigma\,dW_t
+""")
+st.markdown(
+    """
+In discrete time this is an AR(1):
+"""
+)
+st.latex(r"""
+X_t \;=\; c + b\,X_{t-1} + \varepsilon_t,\qquad b = e^{-\theta\,\Delta t},\qquad c = \mu\,(1-b)
+""")
+st.markdown(
+    """
+We fit $b$ and $c$ by OLS, then derive:
+
+- **Half-life** $= \\ln(2)/\\theta$ — days for a dislocation to halve
+- **Long-run mean** $\\mu = c/(1-b)$
+- **Expected move over horizon h**: $(\\mu - X_0)(1 - b^h)$
+
+Implementation: `fixed_income/mean_reversion.py::fit_ou()`.
+
+**Visible on the dashboard:**
+
+- **Scanner**: `MR(1m)` column shows expected 1-month mean-reversion bps,
+  with sign baked in (positive = good for receiver). `HL(d)` column shows
+  the fitted half-life — anything above ~150 days is "barely mean-
+  reverting" and should be treated as a weak signal.
+- **Trade Decomposition page**: replaces the old `z × stdev × 0.5`
+  heuristic. The page tells you both the fitted half-life and the
+  regression R² (high R² ⇒ trustworthy fit).
+
+**Caveats:**
+
+- Assumes constant $\\mu$ and $\\theta$. In reality both shift across
+  regimes; the [Regime page](/Regime) is where to look at regime-
+  conditional behaviour.
+- Fitted on the trade's own price history (default 1Y window). Series
+  with secular trends will absorb the trend into $\\mu$ — half-life
+  >300 days is typically the signal that there's no real reversion in
+  the sample.
+- The mean-reversion bps is a **one-shot expectation over the horizon**,
+  not an annualised flow — don't multiply it by 12.
 """
 )
 st.divider()
@@ -273,31 +330,38 @@ st.markdown(
 Total P&L decomposes into:
 
 1. **Directional**: $\\text{sign} \\times (level_t - level_{\\text{entry}}) \\times 100$ bps
-2. **Carry**: $(\\text{annual carry at entry} / 252) \\times \\text{days held}$
-3. **Transaction**: $-\\text{round-trip bid/ask}$, charged half at entry and the remainder at exit
+2. **Carry (path-dependent)**: for each day $t$ in the backtest, recompute
+   the annual carry $C_t$ from that day's curve via
+   `forward_carry_rolldown`, then accrue $C_t / 252$ to the daily P&L.
+   This is significantly more accurate than the old "compute carry at
+   entry and hold constant" — a 1-year backtest in a moving market earns
+   different carry each day as the curve shape evolves.
+3. **Transaction cost**: $-\\text{round-trip bid/ask}$, charged half at
+   entry and the remainder at exit.
 
 Each component is shown separately on the page, and exported in the CSV
 under columns `directional_bps`, `carry_bps`, `tcost_bps`,
-`cumulative_pnl_bps`.
+`cumulative_pnl_bps`. The Backtester also renders the **carry path** —
+a chart showing how the annualised carry rate evolved throughout the
+holding window. Flat = stable curve; dispersed = position lived through
+different carry environments.
 
-**Limitations:**
+**What's still approximated:**
 
-- Carry is computed **once at entry** and accrues linearly. It does NOT
-  re-mark as the curve moves through the backtest. For a 1-year+ window
-  in a moving market, real carry would be path-dependent — the backtester
-  understates this for trades held through a major curve regime change.
-- No slippage beyond the bid/ask is modelled. Real execution at size
-  pays more, especially in the long-end and during stress.
-- No convexity adjustment to daily P&L (small for most backtest windows,
-  but for big yield moves the directional component over-states the
-  loss/under-states the gain for a long-convex position).
+- No slippage beyond the bid/ask. Real execution at size pays more,
+  especially in the long end and during stress.
+- No convexity adjustment to daily P&L. Small for most backtest windows
+  but for big yield moves the directional component overstates the loss
+  (or understates the gain) for a long-convex position.
+- Carry is computed on the **swap/Treasury par curve** with SOFR funding,
+  not on a trade-specific repo curve. Real repo spreads vary by issue.
 """
 )
 st.divider()
 
 
 # ── Regime detector ──────────────────────────────────────────────────────
-st.subheader("8. Regime detector — what it is and isn't")
+st.subheader("8. Regime detector — clustering + empirical transitions")
 st.markdown(
     """
 The Regime page does:
@@ -309,26 +373,38 @@ The Regime page does:
 4. For each cluster, computes the **Sharpe of two archetypes** (5Y outright
    receiver carry, 2s5s10s belly fly) on the dates that belong to that
    cluster.
+5. Treats the cluster sequence as an empirical Markov chain — counts
+   regime → next-regime transitions and reports persistence (P stay),
+   expected duration $(1 - p_{\\text{stay}})^{-1}$, and probability of
+   still being in the regime in 1w / 1m / 3m: $p_{\\text{stay}}^N$.
 
 **What this is:**
 
 - A clustering of historical rate states based on observable features.
 - A "conditional on this kind of market, here's what's worked" lookup.
+- An empirical first-order Markov chain on the cluster sequence —
+  enough to answer "how persistent is this regime?" and "where does
+  it tend to flip to?"
 
 **What this isn't:**
 
-- Not a Markov-switching model or HMM — there's no forward-looking
-  transition matrix between regimes.
-- Not regime *detection* in the statistical sense — it's regime
-  *clustering*. The "regime" the model says we're in today is just the
-  cluster centroid closest to today's feature vector.
-- Conditional Sharpe is unconditional Sharpe **split by dates**, not a
-  separate fit per regime.
+- Not a full Markov-switching state-space model (Hamilton 1989). A
+  proper MS model would estimate cluster means, variances, AND
+  transitions jointly with a likelihood function, and the regime
+  assignment for each day would be a posterior probability rather
+  than a hard label.
+- The transition probabilities are computed AFTER the clustering, so
+  the clustering algorithm doesn't know about persistence. A trade
+  that's near a regime boundary gets a hard label rather than a
+  smooth one.
+- The Markov property (next regime depends only on today's) is a
+  strong assumption. Real regime transitions cluster around macro
+  inflection points (Fed pivots, CPI surprises) which the model can't
+  see directly.
 
-For research idea-generation this is useful — if "carry > convexity in
-regime X" and we're in regime X today, the screen is suggestive. For a
-risk system or a desk's regime-conditional sizing, you'd want a real
-state-space model.
+For research idea-generation this is useful and increasingly
+principled. For a risk system or a desk's regime-conditional sizing,
+you'd still want a full Markov-switching fit.
 """
 )
 st.divider()
@@ -342,11 +418,11 @@ st.markdown(
 |---|---|---|
 | **Discount curve** | Single par curve, semi-annual | Multi-curve OIS, dual-curve discounting |
 | **Funding** | SOFR for everything | Trade-specific repo / collateral curves |
-| **Carry in backtest** | Static at entry | Re-marked daily as the curve moves |
+| **Carry in backtest** | ✅ Re-marked daily from prevailing curve | Match (already done) |
 | **Slippage** | Bid/ask only | Size-impact model, intraday execution slippage |
-| **Convexity** | Used in scanner E[Ret], not in backtester daily P&L | Convexity-adjusted P&L on every mark |
-| **Regime** | K-means clustering | Markov-switching / HMM with transition matrix |
-| **Mean reversion** | Heuristic 50% over horizon | Empirically-fit decay per pair |
+| **Convexity** | ✅ In scanner E[Ret]; not yet in backtester daily P&L | Convexity-adjusted P&L on every mark |
+| **Regime** | ✅ K-means + empirical Markov transitions | Full Markov-switching / HMM joint fit |
+| **Mean reversion** | ✅ Empirical OU fit per pair (was 50% heuristic) | Match (already done) |
 | **Cross-currency** | Not modelled | Full xccy basis curves |
 | **Bond futures** | Cash treasuries only | Conversion factors, CTD selection, basis |
 

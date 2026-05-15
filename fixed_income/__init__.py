@@ -88,6 +88,12 @@ from .risk import (
     tcost_fly_bps,
 )
 
+from .mean_reversion import (
+    OUFit,
+    fit_ou,
+    mean_reversion_bps,
+)
+
 from .spread_options import (
     bachelier_price,
     bachelier_implied_vol,
@@ -174,6 +180,8 @@ __all__ = [
     "convexity_pickup_bps", "spread_convexity_bps", "fly_convexity_bps",
     "bid_ask_bps", "round_trip_cost_bps",
     "tcost_outright_bps", "tcost_curve_bps", "tcost_fly_bps",
+    # mean_reversion (empirical OU half-lives)
+    "OUFit", "fit_ou", "mean_reversion_bps",
     # spread_options
     "bachelier_price", "bachelier_implied_vol", "bachelier_greeks",
     "kirks_price", "mc_spread_option", "spread_option_expected_return",

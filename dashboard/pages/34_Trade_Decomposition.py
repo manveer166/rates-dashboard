@@ -137,29 +137,32 @@ rolldown_bps = sign * cr["rolldown"]
 total_cr_bps = carry_bps + rolldown_bps   # excluding mean reversion
 
 
-# ── Compute mean reversion premium (Z-score driven) ──────────────────────
+# ── Compute mean reversion premium — empirical OU fit ────────────────────
+# Replaces the previous 50%-per-year heuristic with a fitted half-life
+# from the trade's own price history. The Methodology page documents the
+# model (Ornstein-Uhlenbeck via AR(1) regression).
 def _spread_series():
     if ti == "outright":
         return df[tenors[0]].dropna()
     if ti == "spread":
+        # Conventional spread (not DV01-weighted) — easier to fit + interpret
         return (df[tenors[1]] - df[tenors[0]]).dropna()
-    return (2 * df[tenors[1]] - df[tenors[0]] - df[tenors[2]]).dropna()
+    # Conventional fly: belly − 0.5 × (wing1 + wing2)
+    return (df[tenors[1]] - 0.5 * (df[tenors[0]] + df[tenors[2]])).dropna()
 
 spread_ts = _spread_series().tail(252)
 if len(spread_ts) >= 60 and spread_ts.std() > 0:
     z_now = float((spread_ts.iloc[-1] - spread_ts.mean()) / spread_ts.std())
-    spread_std_bps = float(spread_ts.std()) * 100
 else:
     z_now = 0.0
-    spread_std_bps = 0.0
 
-# Heuristic: assume 50% of dislocation reverts over a 1Y horizon.
-# For receive: profit when level falls (Z > 0 = level above mean = expect fall).
-# So receive mean-reversion bps = +Z * stdev * decay_factor (over horizon).
-# Scale by holding fraction of a year.
-DECAY_PER_YEAR = 0.5    # 50% of dislocation reverts per year, conservative
-horizon_yrs = holding_months / 12.0
-mean_rev_bps = sign * z_now * spread_std_bps * DECAY_PER_YEAR * horizon_yrs
+# Fit OU and project over the user-selected holding period (in trading days)
+horizon_days = int(round(holding_months * 21.0))   # ~21 BDays / month
+ou_fit = fi.fit_ou(spread_ts, window_days=252, horizon_days=horizon_days)
+# Sign: for a receive trade, level falling = positive P&L.
+# fit.expected_move_h is signed (μ − X_0)(1 − b^h): negative if X_0 > μ.
+# So receive_pnl = -expected_move × 100 (bps) × sign for direction.
+mean_rev_bps = -sign * ou_fit.expected_move_h * 100.0 if ou_fit.valid else 0.0
 
 total_exp_bps = carry_bps + rolldown_bps + mean_rev_bps
 
@@ -291,7 +294,10 @@ st.dataframe(sens_df, use_container_width=True, hide_index=True,
 # ── Footer notes ─────────────────────────────────────────────────────────
 st.divider()
 st.caption(
-    "**Mean-reversion assumption:** half-life ≈ 1 year (50% decay). Conservative — "
-    "you can override if you have a stronger reversion view. "
-    "Mean-reversion bps = direction-sign × Z-score × 1Y stdev × 0.5 × (holding period / 1Y)."
+    "**Mean reversion:** fitted Ornstein-Uhlenbeck process — half-life and "
+    "long-run mean estimated by AR(1) regression on the trade's own 1-year "
+    "history. Expected P&L = direction × (μ − X_0) × (1 − exp(−θ · h)) × 100, "
+    f"where the fitted half-life is **{ou_fit.half_life_days:.0f} days** and "
+    f"R² = {ou_fit.r_squared:.2f} (high R² ⇒ trustworthy fit). "
+    "See [Methodology](/Methodology) for the full derivation."
 )

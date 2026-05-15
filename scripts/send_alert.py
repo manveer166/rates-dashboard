@@ -133,6 +133,11 @@ def build_scanner():
         # for an annualised E[Ret] we amortise across the holding horizon
         # (matches `holding_months` in forward_carry_rolldown; default 1m).
         tcost_bps = fi.tcost_outright_bps(ty)
+        # Empirical OU mean-reversion (fits its own half-life from history).
+        # Sign convention: rising yield is bad for a receiver → flip sign.
+        ou = fi.fit_ou(s, window_days=252, horizon_days=21)
+        mr_bps = -ou.expected_move_h * 100.0 if ou.valid else 0.0
+        hl = ou.half_life_days if ou.valid else float("inf")
         ann_cr_net = cr["total"] * 12 + conv_bps - tcost_bps
         sharpe = ann_cr_net / rvol if rvol and rvol > 0 else float("nan")
         d1w = round((float(s.iloc[-1]) - float(s.iloc[-6])) * 100, 1) if len(s) > 5 else 0
@@ -141,6 +146,8 @@ def build_scanner():
                       "Z": round(z, 2), "E[Ret]": round(ann_cr_net, 1),
                       "Conv":  round(conv_bps, 1),
                       "TCost": round(tcost_bps, 1),
+                      "MR(1m)": round(mr_bps, 1),
+                      "HL(d)": round(hl, 0) if hl != float("inf") else "—",
                       "Risk": round(rvol, 1), "D1W": d1w})
 
     pairs = [(avail[i], avail[j]) for i in range(len(avail)) for j in range(i+1, len(avail))]
@@ -164,6 +171,16 @@ def build_scanner():
         conv_bps = (fi.spread_convexity_bps(ty1, y1, ty2, y2, leg_rvol)
                     if leg_rvol and not np.isnan(leg_rvol) else 0.0)
         tcost_bps = fi.tcost_curve_bps(ty1, ty2, y1, y2)
+        # Mean reversion on the CONVENTIONAL spread (y_long − y_short), which
+        # is what desks actually quote and what reversion is naturally about.
+        # The hybrid DV01-weighted spread above is still used for rvol/Z
+        # because those need a P&L-equivalent measure.
+        conv_spread = (rdf[t2] - rdf[t1]).dropna()
+        ou = fi.fit_ou(conv_spread, window_days=252, horizon_days=21)
+        # Receive-long/pay-short = bet on spread NARROWING. Receiver wins
+        # when expected_move on the spread is negative.
+        mr_bps = -ou.expected_move_h * 100.0 if ou.valid else 0.0
+        hl = ou.half_life_days if ou.valid else float("inf")
         ann_cr_net = cr["total"] * 12 + conv_bps - tcost_bps
         sharpe = ann_cr_net / rvol if rvol and rvol > 0 else float("nan")
         d1w = round((float(s.iloc[-1]) - float(s.iloc[-6])) * 100, 1) if len(s) > 5 else 0
@@ -172,6 +189,8 @@ def build_scanner():
                       "Z": round(z, 2), "E[Ret]": round(ann_cr_net, 1),
                       "Conv":  round(conv_bps, 1),
                       "TCost": round(tcost_bps, 1),
+                      "MR(1m)": round(mr_bps, 1),
+                      "HL(d)": round(hl, 0) if hl != float("inf") else "—",
                       "Risk": round(rvol, 1), "D1W": d1w})
 
     flies = [(avail[i], avail[j], avail[k])
@@ -195,6 +214,12 @@ def build_scanner():
         conv_bps = (fi.fly_convexity_bps(tw1, y_w1, tb, y_b, tw2, y_w2, belly_rvol)
                     if belly_rvol and not np.isnan(belly_rvol) else 0.0)
         tcost_bps = fi.tcost_fly_bps(tw1, tb, tw2)
+        # Mean reversion on the conventional fly value: belly − 0.5(wing1+wing2)
+        # A receiver of the belly is short this quantity (gains when fly falls).
+        conv_fly = (rdf[b] - 0.5 * (rdf[w1] + rdf[w2])).dropna()
+        ou = fi.fit_ou(conv_fly, window_days=252, horizon_days=21)
+        mr_bps = -ou.expected_move_h * 100.0 if ou.valid else 0.0
+        hl = ou.half_life_days if ou.valid else float("inf")
         ann_cr_net = cr["total"] * 12 + conv_bps - tcost_bps
         sharpe = ann_cr_net / rvol if rvol and rvol > 0 else float("nan")
         d1w = round((float(s.iloc[-1]) - float(s.iloc[-6])) * 100, 1) if len(s) > 5 else 0
@@ -203,6 +228,8 @@ def build_scanner():
                       "Z": round(z, 2), "E[Ret]": round(ann_cr_net, 1),
                       "Conv":  round(conv_bps, 1),
                       "TCost": round(tcost_bps, 1),
+                      "MR(1m)": round(mr_bps, 1),
+                      "HL(d)": round(hl, 0) if hl != float("inf") else "—",
                       "Risk": round(rvol, 1), "D1W": d1w})
 
     return pd.DataFrame(rows) if rows else pd.DataFrame()

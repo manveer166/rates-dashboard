@@ -373,6 +373,117 @@ st.caption(
 
 st.divider()
 
+
+# ── Empirical transition matrix ──────────────────────────────────────────
+# Treat the K-means cluster sequence as a Markov chain and read off the
+# 1-day transition probabilities from history. Not the same as a true
+# Markov-switching state-space fit (which would estimate transitions
+# jointly with regime means), but it's a real lookup at the data and
+# gives the user "how persistent is this regime?" + "where would I go
+# next if it ended?"
+st.subheader("🔁 Regime transitions — empirical Markov chain")
+st.caption(
+    "1-day transition probabilities estimated by counting historical "
+    "regime → regime moves. Diagonal = persistence (P stay one more day). "
+    "Off-diagonal = where regimes tend to flip to."
+)
+
+# Count regime → next-regime occurrences
+trans_counts = np.zeros((n_clusters, n_clusters), dtype=float)
+for i in range(len(labels) - 1):
+    src = int(labels.iloc[i])
+    dst = int(labels.iloc[i + 1])
+    trans_counts[src, dst] += 1
+row_totals = trans_counts.sum(axis=1, keepdims=True)
+trans_probs = np.where(row_totals > 0, trans_counts / row_totals, 0.0)
+
+# Expected duration in each regime: if P(stay) = p, expected duration
+# (in days) of a regime spell starting fresh = 1 / (1 - p)
+expected_duration_days = np.where(
+    trans_probs.diagonal() < 1.0,
+    1.0 / (1.0 - trans_probs.diagonal()),
+    float("inf"),
+)
+
+# Probability of *still being* in regime X after N days, starting from X:
+# P_stay(N) = p^N
+P_STAY_HORIZONS = [5, 21, 63]   # 1w, 1m, 3m
+
+trans_rows = []
+for c in range(n_clusters):
+    row = {"Regime": f"R{c}: {centroids.loc[c, 'label']}"}
+    row["Persistence (1d)"] = f"{trans_probs[c, c]:.3f}"
+    row["Expected dur. (days)"] = (f"{expected_duration_days[c]:.0f}"
+                                    if np.isfinite(expected_duration_days[c])
+                                    else "∞")
+    for h in P_STAY_HORIZONS:
+        row[f"Still in @{h}d"] = f"{trans_probs[c, c]**h:.1%}"
+    trans_rows.append(row)
+
+st.dataframe(pd.DataFrame(trans_rows), use_container_width=True, hide_index=True)
+
+# Transition heatmap
+trans_fig = go.Figure(data=go.Heatmap(
+    z=trans_probs,
+    x=[f"R{c}" for c in range(n_clusters)],
+    y=[f"R{c}: {centroids.loc[c, 'label'][:25]}" for c in range(n_clusters)],
+    colorscale=[[0.0, "#0a1628"], [0.3, "#122340"], [0.6, "#1a3056"],
+                 [0.85, "#4fc3f7"], [1.0, "#81d4fa"]],
+    zmin=0, zmax=1,
+    text=[[f"{p*100:.0f}%" for p in row] for row in trans_probs],
+    texttemplate="%{text}", textfont={"color": "white", "size": 11},
+    colorbar=dict(title="P(next)"),
+    hovertemplate="From: %{y}<br>To: %{x}<br>P: %{z:.3f}<extra></extra>",
+))
+trans_fig.add_vline(x=current_cluster, line_color="#fbbf24", line_width=2,
+                      annotation_text="Current", annotation_position="top",
+                      annotation_font_color="#fbbf24")
+trans_fig.update_layout(
+    template=PLOTLY_THEME,
+    height=300 + 40 * n_clusters,
+    margin=dict(l=10, r=10, t=40, b=10),
+    yaxis=dict(autorange="reversed"),
+    xaxis=dict(title="To"),
+)
+st.plotly_chart(trans_fig, use_container_width=True)
+
+# Current-regime forward-looking summary
+current_persist = trans_probs[current_cluster, current_cluster]
+current_destinations = sorted(
+    [(j, trans_probs[current_cluster, j]) for j in range(n_clusters) if j != current_cluster],
+    key=lambda x: -x[1],
+)
+top_dest, top_p = current_destinations[0] if current_destinations else (None, 0.0)
+
+st.markdown(
+    f"""
+    <div style='background:#122340;border-left:4px solid #fbbf24;
+                padding:14px 18px;border-radius:6px;margin:6px 0 0'>
+      <div style='color:#94a8c9;font-size:11px;letter-spacing:1.5px;
+                  font-weight:700'>FORWARD-LOOKING (FROM CURRENT REGIME)</div>
+      <div style='color:#cbd5e1;font-size:13px;line-height:1.6;margin-top:6px'>
+        • <b>P(stay tomorrow)</b>: {current_persist:.1%}  →
+        <b>P(still here in 1m)</b>: {current_persist**21:.1%}  ·
+        <b>3m</b>: {current_persist**63:.1%}<br>
+        • <b>Most likely next regime if it flips</b>:
+        {("R" + str(top_dest) + ": " + centroids.loc[top_dest, "label"]) if top_dest is not None else "—"}
+        ({top_p:.1%} of off-diagonal flips)<br>
+        • <b>Expected duration of this regime</b>:
+        {(f"{expected_duration_days[current_cluster]:.0f} days") if np.isfinite(expected_duration_days[current_cluster]) else "≥ 1 year"}
+      </div>
+      <div style='color:#6a7e9e;font-size:11px;margin-top:8px;line-height:1.5'>
+        These are empirical frequencies from the cluster sequence — they
+        assume tomorrow's regime depends only on today's (Markov property).
+        Real regime transitions cluster around macro inflection points
+        (Fed pivots, CPI surprises) which the model can't see.
+      </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+st.divider()
+
 # ── Within-regime conditional Z-scores ────────────────────────────────────
 st.subheader("📐 Within-regime Z-scores")
 st.caption(

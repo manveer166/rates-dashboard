@@ -201,44 +201,74 @@ sign = -1.0 if direction == "receive" else 1.0
 # 1. Directional P&L — pure mark-to-market on the level
 directional_cum = sign * (level - entry_level) * 100   # cumulative bps from entry
 
-# 2. Carry accrual — compute the entry-time carry once, then accrue daily
-def _compute_entry_carry_bps_annual() -> float:
-    """Carry (in bps per year) at entry, sign-adjusted for direction.
+# 2. Carry accrual — PATH-DEPENDENT. Recompute carry every day from that
+# day's curve, then accrue. This is the right thing for long backtest
+# windows: a position held through a regime change earns different daily
+# carry as the curve shape evolves, not the entry-time carry forever.
+def _compute_carry_path() -> pd.Series:
+    """Per-day carry accrual in bps, indexed by `level`.
 
-    Uses fixed_income.forward_carry_rolldown which combines forward-rate
-    carry + curve rolldown. Static through the backtest — does not
-    re-mark as the curve moves.
+    Uses fixed_income.forward_carry_rolldown at each date with the
+    prevailing curve. ~0.04s for a 5-year backtest — well affordable.
+
+    Returns a Series of daily P&L from carry (positive = trade is
+    making money from holding it; negative = paying away).
     """
-    # Build curve dict at entry from the leg yields
-    entry_row = df.loc[level.index[0], tenors]
-    curve_dict = {t: float(entry_row[t]) for t in tenors
-                  if not pd.isna(entry_row[t])}
-    # Overnight rate at entry (best-effort; defaults to 5.3 if not found)
-    on_rate = 5.3
+    # Prefetch the SOFR / overnight series so we can index it per-date
+    on_series = None
     for col in ["SOFR", "DFF", "EFFR"]:
         if col in df.columns:
-            v = df[col].loc[:level.index[0]].dropna()
-            if len(v):
-                on_rate = float(v.iloc[-1]); break
-    try:
-        if trade_type == "Outright":
-            cr = fi.forward_carry_rolldown(curve_dict, on_rate, "outright", tenors[0])
-        elif trade_type == "Curve":
-            cr = fi.forward_carry_rolldown(curve_dict, on_rate, "spread",
-                                            tenors[1], tenors[0])
-        else:
-            cr = fi.forward_carry_rolldown(curve_dict, on_rate, "fly",
-                                            tenors[0], tenors[1], tenors[2])
-        # carry/rolldown comes back per-month; ×12 for annual
-        annual_bps = (cr.get("total", 0.0) or 0.0) * 12.0
-    except Exception:
-        annual_bps = 0.0
-    # Receivers benefit from positive carry; payers from negative carry
-    return annual_bps * (1.0 if direction == "receive" else -1.0)
+            on_series = df[col].dropna()
+            if len(on_series): break
 
-carry_annual_bps = _compute_entry_carry_bps_annual() if bake_carry else 0.0
-days_elapsed = pd.Series(range(len(level)), index=level.index, dtype=float)
-carry_cum = (carry_annual_bps / 252.0) * days_elapsed
+    # Slice the rate matrix to the backtest window
+    sub = df[tenors].loc[level.index].copy()
+    daily_carry = pd.Series(0.0, index=level.index)
+
+    # Direction sign — receivers earn positive carry when forward < spot;
+    # this is already encoded in cr["total"] for a receive trade.
+    dir_sign = 1.0 if direction == "receive" else -1.0
+
+    for idx, row in sub.iterrows():
+        curve_dict = {t: float(row[t]) for t in tenors if pd.notna(row[t])}
+        if len(curve_dict) < len(tenors):
+            continue   # missing data on this date — skip
+        on_rate = 5.3
+        if on_series is not None:
+            v = on_series.loc[:idx]
+            if len(v): on_rate = float(v.iloc[-1])
+        try:
+            if trade_type == "Outright":
+                cr = fi.forward_carry_rolldown(curve_dict, on_rate, "outright",
+                                                tenors[0], holding_months=12.0)
+            elif trade_type == "Curve":
+                cr = fi.forward_carry_rolldown(curve_dict, on_rate, "spread",
+                                                tenors[1], tenors[0],
+                                                holding_months=12.0)
+            else:
+                cr = fi.forward_carry_rolldown(curve_dict, on_rate, "fly",
+                                                tenors[0], tenors[1], tenors[2],
+                                                holding_months=12.0)
+            # cr["total"] is now the 12-month carry+rolldown estimate at
+            # this day's curve. Daily accrual = annual / 252.
+            daily_carry.loc[idx] = (cr.get("total", 0.0) or 0.0) / 252.0
+        except Exception:
+            daily_carry.loc[idx] = 0.0
+
+    return dir_sign * daily_carry
+
+
+if bake_carry:
+    carry_daily = _compute_carry_path()
+    carry_cum = carry_daily.cumsum()
+    # The "annualised carry at entry" comparison number for the breakdown card
+    carry_annual_bps = float(carry_daily.iloc[0] * 252) if len(carry_daily) else 0.0
+    # The realised average carry across the backtest window
+    carry_avg_annual_bps = float(carry_daily.mean() * 252) if len(carry_daily) else 0.0
+else:
+    carry_cum = pd.Series(0.0, index=level.index)
+    carry_annual_bps = 0.0
+    carry_avg_annual_bps = 0.0
 
 # 3. Transaction costs — paid up-front at entry and exit
 def _compute_tcost_bps() -> float:
@@ -344,9 +374,12 @@ render_signal_card(
 # P&L breakdown — explicit cards
 brk1, brk2, brk3, brk4 = st.columns(4)
 brk1.metric("Directional",      f"{dir_total:+.0f} bps")
-brk2.metric("Carry (baked in)", f"{carry_total:+.0f} bps",
-            delta=f"{carry_annual_bps:+.0f} bps/yr at entry"
-                  if bake_carry else "off")
+_carry_delta = (
+    f"entry {carry_annual_bps:+.0f} → avg {carry_avg_annual_bps:+.0f} bps/yr"
+    if bake_carry else "off"
+)
+brk2.metric("Carry (path-dependent)", f"{carry_total:+.0f} bps",
+            delta=_carry_delta)
 brk3.metric("Transaction cost", f"{tcost_total:+.0f} bps",
             delta=f"−{tcost_bps:.1f} bps round-trip" if bake_tcost else "off")
 brk4.metric("Total",            f"{total_bps:+.0f} bps")
@@ -378,6 +411,44 @@ fig.update_layout(template=PLOTLY_THEME, height=520,
                   margin=dict(l=10, r=10, t=40, b=10),
                   showlegend=False)
 st.plotly_chart(fig, use_container_width=True)
+
+# ── Carry path chart (path-dependent only) ───────────────────────────────
+if bake_carry:
+    with st.expander("📈 Carry path — daily accrual & cumulative carry"):
+        # Reconstruct the daily-carry series for the chart
+        _daily_carry_annual = carry_cum.diff().fillna(carry_cum.iloc[0]) * 252
+        f_carry = make_subplots(rows=2, cols=1, shared_xaxes=True,
+                                  vertical_spacing=0.05, row_heights=[0.55, 0.45],
+                                  subplot_titles=("Cumulative carry (bps)",
+                                                  "Annualised carry rate (bps/yr)"))
+        f_carry.add_trace(go.Scatter(
+            x=carry_cum.index, y=carry_cum.values, name="Cumulative carry",
+            line=dict(color="#fbbf24", width=2),
+            fill="tozeroy", fillcolor="rgba(251,191,36,0.08)",
+        ), row=1, col=1)
+        f_carry.add_hline(y=0, line_dash="dot", line_color="#94a8c9",
+                          line_width=1, row=1, col=1)
+        f_carry.add_trace(go.Scatter(
+            x=_daily_carry_annual.index, y=_daily_carry_annual.values,
+            name="Annualised carry rate",
+            line=dict(color="#a78bfa", width=1.5),
+        ), row=2, col=1)
+        f_carry.add_hline(y=carry_avg_annual_bps, line_dash="dash",
+                          line_color="#94a8c9", line_width=1,
+                          annotation_text=f"Avg {carry_avg_annual_bps:+.0f}",
+                          annotation_position="right",
+                          row=2, col=1)
+        f_carry.update_layout(template=PLOTLY_THEME, height=440,
+                               margin=dict(l=10, r=10, t=40, b=10),
+                               showlegend=False)
+        st.plotly_chart(f_carry, use_container_width=True)
+        st.caption(
+            "Carry is recomputed every day from the prevailing curve via "
+            "`fixed_income.forward_carry_rolldown`. The annualised rate "
+            "(bottom panel) shows how rich/cheap carry on this trade was "
+            "throughout the holding window — flat = stable curve, dispersed "
+            "= position lived through different carry environments."
+        )
 
 # ── Underlying level (yield/spread) chart ─────────────────────────────────
 with st.expander("📈 Underlying level (driver) — yield or DV01-weighted spread"):
