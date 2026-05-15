@@ -1,29 +1,27 @@
-"""Macro / curve data fetcher — direct APIs, no OpenBB dependency.
+"""Macro / curve data fetcher — hybrid (direct APIs first, OpenBB fallback).
 
-Replaces the previous OpenBB-backed wrapper. Same module name, same
-function signatures, same DataFrame contracts — consuming pages don't
-need to change.
+Design:
+  • Direct APIs for everything that has a free keyless source — US Treasury
+    via FRED, Japan via MoF, OECD CLI / CPI / unemployment via FRED's OECD
+    mirrors. No AGPL exposure for any of these.
+  • OpenBB-econdb as a FALLBACK for the Asian sovereign curves (China,
+    Korea, Singapore, Taiwan) that don't have a clean direct keyless API.
+    We use a slim 4-package OpenBB install (openbb + openbb-core +
+    openbb-fixedincome + openbb-econdb) — not the full 30-package stack.
 
-Why this rewrite:
-  • OpenBB Platform is AGPLv3. Running it inside a paid Streamlit
-    product triggers the network-service clause: either open-source
-    your stack OR buy a commercial license.
-  • Every endpoint we actually used has a free, license-clean direct
-    source. So we just call those directly.
+AGPL note:
+  OpenBB Platform is AGPLv3. Using it inside a paid product (i.e. this
+  dashboard's Pro tier) triggers the network-service clause: in strict
+  reading you must release source under AGPL OR get a commercial license.
+  The hybrid approach keeps the AGPL surface area minimal (4 packages,
+  one endpoint, one function). See DEPLOY.md for the practical position.
 
-Data sources (all free, public, no AGPL exposure):
-  • pandas_datareader → FRED (US Fed + OECD mirrors) — no key needed
-  • Japan MoF JGB daily CSV — public, no key
-  • Existing ECB / BoE / TreasuryDirect fetchers in `data/fetchers/`
-
-Coverage trade-off:
-  • US curve: full (FRED constant-maturity DGS* series)
-  • Japan curve: full (MoF daily CSV)
-  • Germany / euro-area: consumers fall back to the existing ECB fetcher
-    (this module returns empty for them and the pages handle it).
-  • China / Korea / Singapore / Taiwan sovereign curves were sourced via
-    OpenBB's econdb provider. Replacing those needs dedicated per-country
-    integrations — not blocking launch, returns empty for now.
+Data sources used:
+  • pandas_datareader → FRED  — US Treasury, OECD CLI / CPI / unemployment
+                                / HPI / share-price-index mirrors
+  • Japan MoF JGB daily CSV   — JGB curve (Shift-JIS, Reiwa-era dates)
+  • OpenBB-econdb             — China / Korea / Singapore / Taiwan curves
+  • data/fetchers/ECB         — used by consumers as their own EUR fallback
 """
 
 from __future__ import annotations
@@ -162,19 +160,63 @@ def _japan_yield_curve(date: Optional[str] = None) -> pd.DataFrame:
             if rows else pd.DataFrame())
 
 
+# Asian sovereign markets we route through OpenBB-econdb (no clean keyless
+# direct source for these — and the econdb provider works keyless inside
+# the OpenBB SDK). Hong Kong is listed but econdb has no daily data.
+_ECONDB_ASIA = {"china", "south_korea", "singapore", "taiwan",
+                "hong_kong", "thailand"}
+
+
+@_safe
+def _econdb_yield_curve(country: str,
+                        date: Optional[str] = None) -> pd.DataFrame:
+    """Sovereign curve via OpenBB-econdb. Optional fallback for the
+    Asian markets we don't have direct integrations for.
+
+    Returns DataFrame with `maturity_years` + `rate` columns to match the
+    direct fetchers' contract. Returns empty if openbb isn't installed or
+    the provider has no data."""
+    try:
+        from openbb import obb
+    except ImportError:
+        logger.warning("openbb not installed — %s curve unavailable", country)
+        return pd.DataFrame()
+    kw = {"provider": "econdb", "country": country}
+    if date:
+        kw["date"] = date
+    r = obb.fixedincome.government.yield_curve(**kw)
+    df = r.to_dataframe()
+    # econdb returns: date (index) | maturity (str) | rate (decimal) |
+    # country | maturity_years. Keep only what consumers need.
+    if df.empty or "maturity_years" not in df.columns or "rate" not in df.columns:
+        return pd.DataFrame()
+    out = df[["maturity_years", "rate"]].reset_index(drop=True)
+    out["maturity_years"] = out["maturity_years"].astype(float)
+    out["rate"] = out["rate"].astype(float)
+    return out.sort_values("maturity_years").reset_index(drop=True)
+
+
 @_safe
 def yield_curve(country: str = "united_states",
                 date: Optional[str] = None) -> pd.DataFrame:
-    """Sovereign yield curve for the supported keyless sources.
+    """Sovereign yield curve — hybrid routing.
 
-    Currently wired: united_states (FRED), japan (MoF).
+    Direct keyless sources (no AGPL exposure):
+      • united_states → FRED
+      • japan         → MoF
+
+    OpenBB-econdb fallback (AGPL — but we only use it for these):
+      • china, south_korea, singapore, taiwan, hong_kong, thailand
+
     Other countries return empty — consuming pages have their own
-    fallbacks (ECB for euro-area, BoE for UK).
+    fallbacks (data/fetchers/ECB for euro-area, BoE IADB for UK).
     """
     if country == "united_states":
         return yield_curve_us(date=date)
     if country == "japan":
         return _japan_yield_curve(date=date)
+    if country in _ECONDB_ASIA:
+        return _econdb_yield_curve(country, date=date)
     return pd.DataFrame()
 
 
@@ -185,11 +227,9 @@ def asia_yield_snapshot(countries: Iterable[str] = ("china", "japan",
                         date: Optional[str] = None) -> pd.DataFrame:
     """Latest sovereign yield curves across Asian markets.
 
-    Note: only Japan has a direct keyless source wired up. China / Korea /
-    Singapore / Taiwan previously came through OpenBB's econdb provider
-    and need their own integrations. Returns Japan-only until those are
-    added; the Global Curves page handles the partial coverage gracefully.
-    """
+    Japan via MoF (direct), the rest via OpenBB-econdb (keyless).
+    Hong Kong's regulator retired their public yield API; Singapore is
+    the standard practitioner proxy when needed."""
     out = []
     for c in countries:
         df = yield_curve(c, date=date)

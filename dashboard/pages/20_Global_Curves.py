@@ -227,10 +227,10 @@ st.divider()
 # the currency-board / USD-anchored dynamic.
 st.subheader("🌏 Asian sovereign curves")
 st.caption(
-    "Japan via the MoF daily CSV (public, no key). China / Korea / Singapore "
-    "/ Taiwan coverage is being rebuilt on direct sources — currently shows "
-    "Japan only. Hong Kong's public yield curve API has been retired by HKMA; "
-    "Singapore is the standard practitioner proxy when it returns."
+    "Japan via the MoF daily CSV (direct, public, no key). China / Korea / "
+    "Singapore / Taiwan via OpenBB's econdb provider (keyless). Hong Kong's "
+    "public yield curve API has been retired by HKMA — Singapore is the "
+    "standard practitioner proxy (currency-board peers anchored to USD)."
 )
 
 

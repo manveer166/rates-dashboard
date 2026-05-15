@@ -33,6 +33,34 @@ A `fly.toml` is already shipped in this repo with the right settings —
 you don't need to write any infra config. The whole flow is ~15 min the
 first time.
 
+### A note on OpenBB and AGPL
+
+We use a **slim 4-package OpenBB install** (`openbb`, `openbb-core`,
+`openbb-fixedincome`, `openbb-econdb`) for one thing only: sovereign
+yield curves for China / Korea / Singapore / Taiwan, which have no
+clean keyless direct API. Everything else (US, Japan, OECD CLI / CPI
+/ unemployment, etc.) is fetched directly with no OpenBB involvement.
+
+**The honest situation:** OpenBB Platform is AGPLv3. A strict reading
+of the network-service clause says using it in a paid SaaS product
+either requires open-sourcing your stack OR a commercial license from
+the OpenBB team. They sell commercial licenses precisely for this case.
+
+**Our pragmatic position:** the AGPL surface area is tiny (one endpoint,
+one function — `_econdb_yield_curve`). For a small solo product at
+launch, this is a defensible position but **not legal advice**. If
+the product gets significant scale or attracts attention from the
+OpenBB team, you have two clean exits:
+
+1. Pay for an OpenBB commercial license (typically <$1k/yr for solo).
+2. Drop the 4 OpenBB packages and accept that 4 Asian curves go dark
+   until someone builds direct integrations (PBOC / BoK / MAS / CBC).
+
+The code is structured so option 2 is a 10-minute change: the Asia
+fallback `_econdb_yield_curve()` is a single function; if `openbb` isn't
+importable, those calls silently return empty and the consumer pages
+degrade gracefully.
+
 ### Step 0 — buy the domain (if you don't have one)
 
 For `macromanv.com` or `app.macromanv.com`, pick a registrar:
