@@ -26,22 +26,31 @@ upgrade CTA.
 
 ---
 
-## 🟡 Substack — *The writing*
+## 🟡 Substack — *The writing + insight tools*
 
-> **The full Macro Manv newsletter — premium posts, full archive, deep-dive
-> pieces — without the analytical dashboard.**
+> **The paid Macro Manv newsletter, plus the 7 semi-pro dashboard pages
+> that let you understand what's moving.**
 >
-> For readers who want the writing but don't need the trade-scanner /
-> backtester / regime tools. Same dashboard access as the Free tier.
+> Regression fits, PCA decomposition, correlation, carry/rolldown waterfall,
+> the watchlist, auctions, and CTA positioning. Everything you need to
+> follow the writing more deeply — without the executable trade tools.
 >
 > **Price: $15 / month  ·  $150 / year (save 17%)**
 >
-> For readers who follow the writing closely but don't manage rates positions.
+> For analytical readers who want to *understand* rates moves but don't
+> manage live RV positions.
 
 **What's included:**
 - Everything in Free
 - Paid Substack newsletter (full archive, premium-only posts)
-- Same dashboard access as Free (no Pro pages)
+- **7 semi-pro dashboard pages:**
+  - 📐 Regression — yields vs macro factor fits
+  - 🧮 PCA — curve decomposition (level / slope / curvature)
+  - 🔗 Correlation matrix
+  - 🧩 Trade Decomposition — carry / rolldown / mean-rev waterfall
+  - 📌 Watchlist — pin + live PnL + auto-alerts
+  - 🏛️ Auctions — bid-to-cover + weak-flag alerts
+  - 📊 CTA Positioning — CFTC commitment-of-traders
 
 ---
 
@@ -62,20 +71,14 @@ upgrade CTA.
 > For active rates traders who size positions, not just opinions.
 
 **What's included:**
-- Everything in Substack (paid newsletter + free dashboard)
-- All 13 premium dashboard pages:
-  - 🔍 Trade Scanner — ranked RV board
+- Everything in Substack (paid newsletter + 7 semi-pro pages)
+- **6 additional Pro-only trader tools:**
+  - 🔍 Trade Scanner — full ranked RV board
   - 🧰 Trade Builder — DV01-neutral leg sizing + ticket
-  - 🧪 Backtester — daily PnL / Sharpe / max DD for any structure
-  - 🧩 Trade Decomposition — carry / rolldown / mean-rev waterfall
-  - 🧭 Regime detector — carry vs convexity + conditional Sharpe
-  - 🧮 PCA + PCA Backtest — strategy on principal components
-  - 🔗 Correlation matrix
-  - 📐 Regression — yields vs macro fits
-  - 🌊 Vol Surface
-  - 🏛️ Auctions — bid-to-cover + weak-flag alerts
-  - 📊 CTA Positioning — CFTC commitment-of-traders
-  - 📌 Watchlist — pin + live PnL + auto-alerts
+  - 🧪 Backtester — daily PnL / Sharpe / max DD over 5Y history
+  - 🧭 Regime detector — carry vs convexity + conditional Sharpe heatmap
+  - 🧮 PCA Backtest — mean-reversion strategy on PCs
+  - 🌊 Vol Surface — swaption grid + smile
 
 ---
 

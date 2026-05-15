@@ -1,19 +1,21 @@
-"""Reusable premium-tier gate.
+"""Reusable tier-aware page gate.
 
-Drop into any page that should be premium-only:
+Drop into any page that should be tier-gated:
 
     from dashboard.components.premium_gate import premium_gate
     if not premium_gate("Vol Scorecard"):
         st.stop()
 
-Free users see a styled paywall with a teaser + Subscribe CTA (UTM-tagged).
-Admin / premium users pass through transparently.
+Tiers (low → high): free < substack < pro = founding < admin.
 
 Tier config lives in `data/premium_pages.json`:
     {
-      "29_Vol_Scorecard":  {"required": "premium", "preview_text": "..."},
-      "24_Backtester":     {"required": "premium"}
+      "Regression": {"required": "substack", "preview_text": "..."},
+      "Backtester": {"required": "premium",  "preview_text": "..."}
     }
+
+`required` accepts: free, substack, premium (= pro/founding).
+Subscriber tiers stored in `data/subscriber_tiers.json` (email → tier).
 """
 
 from __future__ import annotations
@@ -44,76 +46,99 @@ def _save_config(data: dict) -> None:
     CONFIG_PATH.write_text(json.dumps(data, indent=2))
 
 
-def _user_tier() -> str:
-    """Resolve the current user's tier.  Admin > premium > free."""
-    if is_admin():
-        return "admin"
-    # Page-locked subscribers get treated as 'premium' on their unlocked page
-    # but 'free' elsewhere.  Without that we'd lock them out of pages they
-    # have explicit access to.
-    if st.session_state.get("page_lock"):
-        return "page_unlocked"
-    if st.session_state.get("site_authenticated"):
-        return "viewer"
-    return "free"
-
-
-def _utm(campaign: str) -> str:
+def _utm(campaign: str, target_tier: str = "pro") -> str:
     return SUBSCRIBE_URL + "?" + urlencode({
         "utm_source":   "macromanv_dashboard",
         "utm_medium":   "premium_gate",
-        "utm_campaign": campaign,
+        "utm_campaign": f"{campaign}_{target_tier}",
     })
 
 
 def premium_gate(page_label: str, *, allow_viewer: bool = False) -> bool:
-    """Return True if the current user can view this page; render a paywall and
-    return False otherwise.
+    """Return True if the current user can view this page; render a paywall
+    otherwise.
 
-    page_label   : human-friendly label used in the paywall copy + UTM campaign
-    allow_viewer : if True, basic 'viewer' tier (any password) gets through;
-                   default False = premium / admin only.
+    The page's required tier is read from data/premium_pages.json
+    ('substack' or 'premium'). User tier is resolved from
+    data/subscriber_tiers.json via the email in session_state, or admin
+    via password.
     """
+    from dashboard.components.tiers import tier_at_or_above, current_user_tier
+
     cfg = _load_config().get(page_label, {})
-    required = cfg.get("required", "premium")  # default new pages to premium
+    required = cfg.get("required", "premium")
     if required == "free":
         return True
 
-    tier = _user_tier()
-    if tier in ("admin", "page_unlocked"):
+    # Page-locked subscribers (email-allowlist mechanism) always pass
+    if st.session_state.get("page_lock"):
         return True
-    if allow_viewer and tier == "viewer":
+    # Admin always passes
+    if is_admin():
         return True
-    if required == "viewer" and tier == "viewer":
+    # Legacy: viewer-password users get through if explicitly allowed
+    if allow_viewer and st.session_state.get("site_authenticated"):
+        return True
+    # Tier check
+    if tier_at_or_above(required):
         return True
 
-    # ── Render paywall ───────────────────────────────────────────────────
-    teaser = cfg.get(
-        "preview_text",
-        "This page is part of the Macro Manv premium dashboard. "
-        "Subscribers get the full scanner, backtester, vol scorecard, and "
-        "weekly PDF — plus the daily morning brief.",
-    )
+    # ── Render the paywall (different copy per required tier) ────────────
+    user_t = current_user_tier()
+    teaser = cfg.get("preview_text",
+                      "This page is part of the Macro Manv paid dashboard.")
+
+    if required == "substack":
+        badge = "📨 SUBSTACK TIER"
+        badge_color = "#fbbf24"
+        bg = "linear-gradient(135deg,#1a1106 0%,#3a1e0a 100%)"
+        cta_label = "📨 Subscribe — $15 / mo"
+        cta_campaign = "gate"
+        target_tier = "substack"
+        also = ("Already a Pro / Founding subscriber? You also have access. "
+                "Email-allowlist refresh may be needed if you just signed up.")
+    else:  # premium (pro/founding)
+        badge = "💎 PRO TIER"
+        badge_color = "#4fc3f7"
+        bg = "linear-gradient(135deg,#0f1f3a 0%,#1a3056 100%)"
+        cta_label = "💎 Upgrade to Pro — $49 / mo"
+        cta_campaign = "gate"
+        target_tier = "pro"
+        # If user is on Substack tier, tell them what's missing
+        if user_t == "substack":
+            also = ("You're on the Substack tier — this page is part of the "
+                    "Pro analytical stack ($49/mo or $29 Founding rate while available).")
+        else:
+            also = ("Pro includes the paid Substack subscription — one "
+                    "checkout, one login.")
+
     st.markdown(
         f"""
-        <div style="background:linear-gradient(135deg,#0f1f3a 0%,#1a3056 100%);
-                    border:1px solid #4fc3f7;border-radius:10px;
-                    padding:32px 28px;margin:20px 0;text-align:center">
-            <h2 style="color:#4fc3f7;margin:0 0 8px;font-size:18px;
-                       letter-spacing:2px;font-weight:700">🔒 PREMIUM</h2>
+        <div style="background:{bg};border:1px solid {badge_color};
+                    border-radius:10px;padding:32px 28px;margin:20px 0;
+                    text-align:center">
+            <h2 style="color:{badge_color};margin:0 0 8px;font-size:14px;
+                       letter-spacing:2px;font-weight:700">🔒 {badge}</h2>
             <h1 style="color:#e8eef9;margin:0 0 12px;font-size:28px;
                        font-weight:700">{page_label}</h1>
             <p style="color:#94a8c9;margin:0 auto 18px;max-width:520px;
                       line-height:1.55;font-size:15px">{teaser}</p>
-            <a href="{_utm(page_label)}" target="_blank"
-               style="display:inline-block;background:#4fc3f7;color:#0a1628;
-                      padding:10px 22px;border-radius:6px;text-decoration:none;
+            <a href="{_utm(cta_campaign, target_tier)}" target="_blank"
+               style="display:inline-block;background:{badge_color};color:#0a1628;
+                      padding:11px 24px;border-radius:6px;text-decoration:none;
                       font-weight:700;font-size:14px">
-                📬 Subscribe to Macro Manv →
+                {cta_label}
             </a>
-            <p style="color:#6a7e9e;font-size:11px;margin:14px 0 0">
-                Free posts continue on the Substack — premium dashboard access
-                is included in the paid plan.
+            <p style="color:#6a7e9e;font-size:11px;margin:14px 0 0;
+                      max-width:520px;margin-left:auto;margin-right:auto">
+                {also}
+            </p>
+            <p style="margin-top:14px">
+                <a href="/Pricing" target="_self"
+                   style="color:{badge_color};font-size:12px;
+                          text-decoration:none">
+                    See full tier comparison →
+                </a>
             </p>
         </div>
         """,
@@ -147,7 +172,7 @@ def render_admin_premium_config() -> None:
         rows, use_container_width=True, hide_index=True,
         column_config={
             "Required": st.column_config.SelectboxColumn(
-                options=["free", "viewer", "premium"], required=True),
+                options=["free", "substack", "premium"], required=True),
             "Preview":  st.column_config.TextColumn(width="large"),
         },
         num_rows="fixed", key="premium_cfg_editor",

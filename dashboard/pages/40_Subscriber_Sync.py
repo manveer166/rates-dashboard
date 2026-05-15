@@ -188,6 +188,46 @@ if st.button("✅ Sync now", type="primary", use_container_width=True,
     st.balloons()
 
 
+# ── Tier assignment (separate flow — for the tier-gate model) ─────────────
+st.divider()
+st.subheader("🎫 Assign subscriber tier")
+st.caption(
+    "The premium gate (Substack vs Pro vs Founding) reads "
+    "`data/subscriber_tiers.json`. Use the same parsed emails above to "
+    "bulk-assign a tier here. This is independent of the page allowlist sync above."
+)
+
+from dashboard.components.tiers import set_tier_bulk, list_all_subscribers
+
+tc1, tc2 = st.columns([2, 1])
+with tc1:
+    chosen_tier = st.selectbox(
+        "Assign tier",
+        ["substack", "pro", "founding"],
+        help=("substack = newsletter + free dashboard pages.  "
+              "pro = adds 6 Pro analytical pages.  "
+              "founding = same access as pro, price-locked."),
+    )
+with tc2:
+    st.write("")
+    st.write("")
+    if st.button(f"🎫 Assign {chosen_tier} to all {len(new_emails)} emails",
+                  use_container_width=True,
+                  disabled=not new_emails):
+        n = set_tier_bulk(new_emails, chosen_tier)
+        st.success(f"Updated tier on {n} email(s) → **{chosen_tier}**.")
+        st.rerun()
+
+with st.expander("👥 Current tier roster"):
+    roster = list_all_subscribers()
+    if roster:
+        import pandas as pd
+        st.dataframe(pd.DataFrame(roster), use_container_width=True,
+                      hide_index=True)
+    else:
+        st.caption("_No subscribers assigned a tier yet._")
+
+
 # ── Audit log ────────────────────────────────────────────────────────────
 st.divider()
 with st.expander("📜 Current page → email-count overview"):
