@@ -392,9 +392,15 @@ def main():
     st.title("🏠 Macro Manv — Rates Dashboard")
     st.markdown(
         '<p style="color:var(--c-text-2);font-size:15px;margin-top:-4px;'
-        'margin-bottom:8px;">'
-        "Live yield curves, the scanner, and the RV tools rates desks pay six "
-        "figures for. <b>Free for the data, paid for the alpha.</b>"
+        'margin-bottom:6px;">'
+        "Live yield curves, the scanner, and a research-grade RV "
+        "analytics stack. <b>Free for the data, paid for the screens.</b>"
+        "</p>"
+        '<p style="color:var(--c-text-3);font-size:12px;margin-bottom:8px;">'
+        "Cash-flow DV01 · forward-rate carry · second-order convexity · "
+        "practitioner bid/ask · every formula on the "
+        '<a href="/Methodology" style="color:#4fc3f7;text-decoration:none">'
+        'Methodology page</a>.'
         "</p>",
         unsafe_allow_html=True,
     )

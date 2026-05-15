@@ -114,7 +114,7 @@ def build_scanner():
             curve[t] = float(row[t])
 
     def dv01(t):
-        return fi.approx_dv01(TY.get(t, 10.0), curve.get(t, 4.0))
+        return fi.dv01_par(TY.get(t, 10.0), curve.get(t, 4.0))
 
     rows = []
     for t in avail:
@@ -124,11 +124,24 @@ def build_scanner():
         z = fi.zscore_current(s, 252)
         chg = s.diff().dropna() * 100
         rvol = float(chg.tail(63).std() * np.sqrt(252)) if len(chg) >= 63 else float("nan")
-        ann_cr = cr["total"] * 12
-        sharpe = ann_cr / rvol if rvol and rvol > 0 else float("nan")
+        # Convexity contribution: E[½ C σ²] over 1y, in bps yield-equivalent
+        # at the trade's DV01. Always non-negative for an outright receiver.
+        ty, yld = TY.get(t, 10.0), curve.get(t, 4.0)
+        conv_bps = (fi.convexity_pickup_bps(ty, yld, rvol)
+                    if rvol and not np.isnan(rvol) else 0.0)
+        # Round-trip transaction cost — paid once over the trade's life, so
+        # for an annualised E[Ret] we amortise across the holding horizon
+        # (matches `holding_months` in forward_carry_rolldown; default 1m).
+        tcost_bps = fi.tcost_outright_bps(ty)
+        ann_cr_net = cr["total"] * 12 + conv_bps - tcost_bps
+        sharpe = ann_cr_net / rvol if rvol and rvol > 0 else float("nan")
         d1w = round((float(s.iloc[-1]) - float(s.iloc[-6])) * 100, 1) if len(s) > 5 else 0
-        rows.append({"Trade": f"Rcv {t}", "Type": "Outright", "Sharpe": round(sharpe, 2),
-                      "Z": round(z, 2), "E[Ret]": round(ann_cr, 1), "Risk": round(rvol, 1), "D1W": d1w})
+        rows.append({"Trade": f"Rcv {t}", "Type": "Outright",
+                      "Sharpe": round(sharpe, 2),
+                      "Z": round(z, 2), "E[Ret]": round(ann_cr_net, 1),
+                      "Conv":  round(conv_bps, 1),
+                      "TCost": round(tcost_bps, 1),
+                      "Risk": round(rvol, 1), "D1W": d1w})
 
     pairs = [(avail[i], avail[j]) for i in range(len(avail)) for j in range(i+1, len(avail))]
     for t1, t2 in pairs:
@@ -140,11 +153,26 @@ def build_scanner():
         z = fi.zscore_current(s, 252)
         chg = s.diff().dropna() * 100
         rvol = float(chg.tail(63).std() * np.sqrt(252)) if len(chg) >= 63 else float("nan")
-        ann_cr = cr["total"] * 12
-        sharpe = ann_cr / rvol if rvol and rvol > 0 else float("nan")
+        ty1, ty2 = TY.get(t1, 2.0), TY.get(t2, 10.0)
+        y1, y2 = curve.get(t1, 4.0), curve.get(t2, 4.0)
+        # Convexity needs the PARALLEL-SHIFT yield vol, not the DV01-weighted
+        # hybrid spread vol (which gets amplified by the ratio). Use the
+        # long-leg yield rvol as the proxy for level moves.
+        leg_chg = rdf[t2].diff().dropna() * 100  # daily change in bps
+        leg_rvol = (float(leg_chg.tail(63).std() * np.sqrt(252))
+                    if len(leg_chg) >= 63 else float("nan"))
+        conv_bps = (fi.spread_convexity_bps(ty1, y1, ty2, y2, leg_rvol)
+                    if leg_rvol and not np.isnan(leg_rvol) else 0.0)
+        tcost_bps = fi.tcost_curve_bps(ty1, ty2, y1, y2)
+        ann_cr_net = cr["total"] * 12 + conv_bps - tcost_bps
+        sharpe = ann_cr_net / rvol if rvol and rvol > 0 else float("nan")
         d1w = round((float(s.iloc[-1]) - float(s.iloc[-6])) * 100, 1) if len(s) > 5 else 0
-        rows.append({"Trade": f"Rcv {t1}/{t2}", "Type": "Curve", "Sharpe": round(sharpe, 2),
-                      "Z": round(z, 2), "E[Ret]": round(ann_cr, 1), "Risk": round(rvol, 1), "D1W": d1w})
+        rows.append({"Trade": f"Rcv {t1}/{t2}", "Type": "Curve",
+                      "Sharpe": round(sharpe, 2),
+                      "Z": round(z, 2), "E[Ret]": round(ann_cr_net, 1),
+                      "Conv":  round(conv_bps, 1),
+                      "TCost": round(tcost_bps, 1),
+                      "Risk": round(rvol, 1), "D1W": d1w})
 
     flies = [(avail[i], avail[j], avail[k])
              for i in range(len(avail)) for j in range(i+1, len(avail)) for k in range(j+1, len(avail))]
@@ -158,11 +186,24 @@ def build_scanner():
         z = fi.zscore_current(s, 252)
         chg = s.diff().dropna() * 100
         rvol = float(chg.tail(63).std() * np.sqrt(252)) if len(chg) >= 63 else float("nan")
-        ann_cr = cr["total"] * 12
-        sharpe = ann_cr / rvol if rvol and rvol > 0 else float("nan")
+        tw1, tb, tw2 = TY.get(w1, 2.0), TY.get(b, 5.0), TY.get(w2, 10.0)
+        y_w1, y_b, y_w2 = curve.get(w1, 4.0), curve.get(b, 4.0), curve.get(w2, 4.0)
+        # Use the belly leg's yield vol as the parallel-shift proxy
+        belly_chg = rdf[b].diff().dropna() * 100
+        belly_rvol = (float(belly_chg.tail(63).std() * np.sqrt(252))
+                      if len(belly_chg) >= 63 else float("nan"))
+        conv_bps = (fi.fly_convexity_bps(tw1, y_w1, tb, y_b, tw2, y_w2, belly_rvol)
+                    if belly_rvol and not np.isnan(belly_rvol) else 0.0)
+        tcost_bps = fi.tcost_fly_bps(tw1, tb, tw2)
+        ann_cr_net = cr["total"] * 12 + conv_bps - tcost_bps
+        sharpe = ann_cr_net / rvol if rvol and rvol > 0 else float("nan")
         d1w = round((float(s.iloc[-1]) - float(s.iloc[-6])) * 100, 1) if len(s) > 5 else 0
-        rows.append({"Trade": f"Rcv {w1}/{b}/{w2}", "Type": "Fly", "Sharpe": round(sharpe, 2),
-                      "Z": round(z, 2), "E[Ret]": round(ann_cr, 1), "Risk": round(rvol, 1), "D1W": d1w})
+        rows.append({"Trade": f"Rcv {w1}/{b}/{w2}", "Type": "Fly",
+                      "Sharpe": round(sharpe, 2),
+                      "Z": round(z, 2), "E[Ret]": round(ann_cr_net, 1),
+                      "Conv":  round(conv_bps, 1),
+                      "TCost": round(tcost_bps, 1),
+                      "Risk": round(rvol, 1), "D1W": d1w})
 
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 

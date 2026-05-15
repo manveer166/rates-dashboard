@@ -26,11 +26,17 @@ render_page_header(current="Pricing")
 
 st.title("💎 Pricing")
 st.markdown(
-    '<p style="color:var(--c-text-2);font-size:15px;margin-top:-4px;'
-    'margin-bottom:14px;">'
-    "One subscription, one login. Free for the data — paid for the "
-    "scanner, backtester, and the rest of the trader stack."
-    "</p>",
+    """
+<p style="color:var(--c-text-2);font-size:15px;margin-top:-4px;margin-bottom:6px;">
+One subscription, one login. Free for the data — paid for the scanner,
+backtester, and the rest of the trader stack.
+</p>
+<p style="color:var(--c-text-3);font-size:12px;margin-bottom:14px;">
+Research-grade RV analytics: cash-flow-level DV01 &amp; convexity,
+forward-rate carry, practitioner bid/ask widths. Every formula documented
+on the <a href="/Methodology" style="color:#4fc3f7;text-decoration:none">Methodology page</a>.
+</p>
+    """,
     unsafe_allow_html=True,
 )
 st.divider()
@@ -195,7 +201,7 @@ with c3:
     st.markdown(_tier_card(
         name="Pro · Macro Manv",
         badge_color="#4fc3f7",
-        tagline="The full analytical stack",
+        tagline="The full RV research stack",
         price="$49",
         annual="$420 / year (save 28%)",
         includes_substack=True,

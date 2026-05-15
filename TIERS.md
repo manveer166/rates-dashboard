@@ -56,13 +56,15 @@ upgrade CTA.
 
 ## 🔵 Pro — *Macro Manv Pro*
 
-> **The analytical stack rates desks pay six figures for.**
+> **Research-grade RV analytics, transparent math.**
 >
-> Every receive/pay outright, curve, and fly ranked by Sharpe with carry,
-> rolldown, Z-score, and expected return. DV01-neutral trade construction
-> that hands you a ticket. A backtester that gives every signal a credibility
-> number. Regime detection that tells you whether carry or convexity wins in
-> today's market.
+> Every receive/pay outright, curve, and fly ranked by Sharpe — with
+> cash-flow-level DV01, forward-rate carry, true second-order convexity,
+> and practitioner bid/ask widths baked into expected return. DV01-neutral
+> trade construction with a copy-paste ticket. A backtester that decomposes
+> P&L into directional, carry, and transaction-cost components. Regime
+> clustering that surfaces "what's worked in this kind of market." Every
+> formula documented in the Methodology page.
 >
 > Pro **includes** the paid Substack subscription — one checkout, one login.
 >

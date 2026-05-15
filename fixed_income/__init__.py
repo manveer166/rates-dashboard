@@ -7,7 +7,8 @@ Modules
 utils           Z-scores, rolling stats, date helpers
 carry_rolldown  Carry and rolldown for swaps, bonds, spreads, butterflies
 trade_setup     Outright / Spread / Butterfly trade construction and Sharpe
-bond_analytics  DV01, convexity, asset swaps, box swaps, cross-currency basis
+bond_analytics  Bond pricing, modified duration, full-cash-flow DV01 / convexity
+risk            Single source of truth for DV01, convexity, transaction costs
 spread_options  Bachelier / Kirk / MC pricing for rate spread options
 wedges          Forward wedge analysis and vol-adjusted carry grids
 swaptions       Black / Bachelier / SABR swaption pricing and expected returns
@@ -71,6 +72,20 @@ from .bond_analytics import (
     box_swap_series,
     xccy_basis_carry,
     quick_analytics,
+)
+
+from .risk import (
+    dv01_par,
+    convexity_par,
+    convexity_pickup_dollars,
+    convexity_pickup_bps,
+    spread_convexity_bps,
+    fly_convexity_bps,
+    bid_ask_bps,
+    round_trip_cost_bps,
+    tcost_outright_bps,
+    tcost_curve_bps,
+    tcost_fly_bps,
 )
 
 from .spread_options import (
@@ -154,6 +169,11 @@ __all__ = [
     "dv01_bond", "convexity", "price_change_approx", "asset_swap_spread",
     "swap_spread", "swap_spread_series", "box_swap", "box_swap_series",
     "xccy_basis_carry", "quick_analytics",
+    # risk (DV01 / convexity / transaction costs — single source of truth)
+    "dv01_par", "convexity_par", "convexity_pickup_dollars",
+    "convexity_pickup_bps", "spread_convexity_bps", "fly_convexity_bps",
+    "bid_ask_bps", "round_trip_cost_bps",
+    "tcost_outright_bps", "tcost_curve_bps", "tcost_fly_bps",
     # spread_options
     "bachelier_price", "bachelier_implied_vol", "bachelier_greeks",
     "kirks_price", "mc_spread_option", "spread_option_expected_return",

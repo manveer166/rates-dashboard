@@ -151,11 +151,19 @@ What's paid:
   (regression, PCA, correlation, watchlist, auctions, CTA positioning).
 - **Pro tier ($49/mo)**: everything above PLUS the scanner, the
   DV01-neutral trade builder with copy-paste tickets, the backtester
-  (5Y daily PnL/Sharpe/drawdown per trade), the regime detector with
-  conditional Sharpe heatmap, the PCA backtest, and the vol surface.
+  (5Y daily P&L decomposed into directional / carry / transaction cost),
+  the regime detector with conditional Sharpe heatmap, the PCA backtest,
+  and the vol surface.
 - **Founding tier ($29/mo, first 100 only)**: same access as Pro,
   price locked for life (10-year guarantee), direct line to me. After
   the 100th seat the rate goes to $49 for new joiners.
+
+**On the math:** the analytics are research-grade — cash-flow-level
+DV01, true second-order convexity, forward-rate carry, practitioner
+bid/ask widths baked into the scanner's expected return AND the
+backtester's P&L decomposition. Every formula and every known
+limitation is documented on the [Methodology page](/Methodology) —
+free to read before you decide whether the depth is worth the price.
 
 The whole product opens **this Friday**. If you've been reading the
 newsletter and the screens above are speaking your language, the

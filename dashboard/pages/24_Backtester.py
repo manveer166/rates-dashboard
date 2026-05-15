@@ -4,15 +4,23 @@ Backtests any outright, curve, or fly trade against the cached history.
 DV01-weighting follows the same convention as the scanner, so results line
 up with what the Analysis page Z-scores you (no surprises).
 
-PnL convention (unit = bps per DV01-equivalent):
-    - "Receive" trade ⇒ PnL_t = -(level_t - entry_level) * 100
-    - "Pay"     trade ⇒ PnL_t = +(level_t - entry_level) * 100
+PnL decomposition (all in bps per long-leg DV01):
+    1. Directional   = sign × (level_t − entry_level) × 100
+                       (sign = −1 for receive, +1 for pay)
+    2. Carry accrual = (annual_carry_bps / 252) × days_held
+                       (computed once at entry from the forward curve;
+                       static through the backtest)
+    3. Transaction   = − round-trip bid/ask × bps  (paid at entry & exit)
 
-Stats reported: total bps, annualised, Sharpe, hit rate (% positive days),
-max drawdown, vol, average win/loss.
+Total = directional + carry − tcosts. Each component is tracked
+separately so you can see what's actually driving P&L.
 
-Carry is *not* baked into the curve PnL here — pure mark-to-market.  Adding
-forward-carry roll later is straightforward via fixed_income.forward_carry_rolldown.
+Methodology assumptions:
+  • Single curve discounting (no separate OIS curve)
+  • Static carry at entry — does not re-mark as the curve moves
+  • Bid/ask widths from `fixed_income.risk.bid_ask_bps` (practitioner
+    consensus for USD on-the-run; off-the-run widens)
+  • No slippage beyond the bid/ask (no execution-size impact modelled)
 """
 
 import sys
@@ -96,16 +104,38 @@ with c6:
         help="No: lock in DV01 weights at entry. Daily: re-weight every day to neutral.",
     )
 
+# ── Cost & carry toggles ──────────────────────────────────────────────────
+cost_col1, cost_col2, cost_col3 = st.columns(3)
+with cost_col1:
+    bake_carry = st.checkbox(
+        "Bake in carry", value=True, key="bt_carry",
+        help=("Adds a daily accrual = annual carry / 252. Carry is computed "
+              "once at entry from the forward curve and held constant."),
+    )
+with cost_col2:
+    bake_tcost = st.checkbox(
+        "Bake in transaction costs", value=True, key="bt_tcost",
+        help=("Subtracts round-trip bid/ask widths from total P&L. Defaults "
+              "are practitioner-consensus widths for USD on-the-run."),
+    )
+with cost_col3:
+    cost_instrument = st.selectbox(
+        "Bid/ask source",
+        ["treasury (cash)", "swap"],
+        key="bt_instr",
+        help="Swaps are tighter than cash for benchmark tenors.",
+    )
+_instr = "swap" if cost_instrument.startswith("swap") else "treasury"
+
+
 # ── Build the trade level series ──────────────────────────────────────────
-def _approx_dv01(tenor: str, yld: float) -> float:
-    """Quick DV01 approx (matches fixed_income.approx_dv01 closely enough for weighting)."""
-    years = {"2Y":2,"3Y":3,"5Y":5,"7Y":7,"10Y":10,"20Y":20,"30Y":30}.get(tenor, 10)
-    # Crude: PV of $100 par with semi-annual coupon = yield, 100% recovery.
-    # DV01 ≈ duration / (1 + y/2) * 100 / 10000.  Simpler: years * a-shape.
-    n = years * 2
-    y = max(yld / 100.0, 0.001) / 2
-    pv = sum(1 / (1 + y) ** k for k in range(1, n + 1))
-    return pv * 100.0 / 10000  # rough $ per bp per $100 par
+import fixed_income as fi
+
+_TY_MAP = {"2Y":2,"3Y":3,"5Y":5,"7Y":7,"10Y":10,"20Y":20,"30Y":30}
+
+def _dv01(tenor: str, yld: float) -> float:
+    """Single source of truth — fixed_income.dv01_par."""
+    return fi.dv01_par(_TY_MAP.get(tenor, 10), yld)
 
 
 def _build_levels(df: pd.DataFrame, ttype: str, tenors: list,
@@ -122,15 +152,15 @@ def _build_levels(df: pd.DataFrame, ttype: str, tenors: list,
         # Recompute DV01 weights every day from that day's yield levels.
         if ttype == "Curve":
             t1, t2 = tenors
-            d1 = sub[t1].apply(lambda y: _approx_dv01(t1, y))
-            d2 = sub[t2].apply(lambda y: _approx_dv01(t2, y))
+            d1 = sub[t1].apply(lambda y: _dv01(t1, y))
+            d2 = sub[t2].apply(lambda y: _dv01(t2, y))
             ratio = (d2 / d1).where(d1 > 0, 1.0)
             return sub[t2] - ratio * sub[t1]
         else:
             w1, b, w2 = tenors
-            dw1 = sub[w1].apply(lambda y: _approx_dv01(w1, y))
-            db  = sub[b].apply(lambda y: _approx_dv01(b, y))
-            dw2 = sub[w2].apply(lambda y: _approx_dv01(w2, y))
+            dw1 = sub[w1].apply(lambda y: _dv01(w1, y))
+            db  = sub[b].apply(lambda y: _dv01(b, y))
+            dw2 = sub[w2].apply(lambda y: _dv01(w2, y))
             wb  = (2.0 * dw1 / db).where(db > 0, 2.0)
             ww2 = (dw1 / dw2).where(dw2 > 0, 1.0)
             return wb * sub[b] - sub[w1] - ww2 * sub[w2]
@@ -139,15 +169,15 @@ def _build_levels(df: pd.DataFrame, ttype: str, tenors: list,
     entry_yields = sub.iloc[0]
     if ttype == "Curve":
         t1, t2 = tenors
-        d1 = _approx_dv01(t1, entry_yields[t1])
-        d2 = _approx_dv01(t2, entry_yields[t2])
+        d1 = _dv01(t1, entry_yields[t1])
+        d2 = _dv01(t2, entry_yields[t2])
         ratio = d2 / d1 if d1 > 0 else 1.0
         return sub[t2] - ratio * sub[t1]
     else:
         w1, b, w2 = tenors
-        dw1 = _approx_dv01(w1, entry_yields[w1])
-        db  = _approx_dv01(b,  entry_yields[b])
-        dw2 = _approx_dv01(w2, entry_yields[w2])
+        dw1 = _dv01(w1, entry_yields[w1])
+        db  = _dv01(b,  entry_yields[b])
+        dw2 = _dv01(w2, entry_yields[w2])
         wb  = 2.0 * (dw1 / db) if db > 0 else 2.0
         ww2 = dw1 / dw2 if dw2 > 0 else 1.0
         return wb * sub[b] - sub[w1] - ww2 * sub[w2]
@@ -164,11 +194,81 @@ if len(level) < 10:
     st.warning("Window too short — pick a wider range.")
     st.stop()
 
-# ── PnL series ────────────────────────────────────────────────────────────
+# ── PnL components ────────────────────────────────────────────────────────
 entry_level = float(level.iloc[0])
 sign = -1.0 if direction == "receive" else 1.0
-pnl_bps = sign * (level - entry_level) * 100   # cumulative bps from entry
-daily_pnl = pnl_bps.diff().fillna(0.0)         # daily mark-to-market change
+
+# 1. Directional P&L — pure mark-to-market on the level
+directional_cum = sign * (level - entry_level) * 100   # cumulative bps from entry
+
+# 2. Carry accrual — compute the entry-time carry once, then accrue daily
+def _compute_entry_carry_bps_annual() -> float:
+    """Carry (in bps per year) at entry, sign-adjusted for direction.
+
+    Uses fixed_income.forward_carry_rolldown which combines forward-rate
+    carry + curve rolldown. Static through the backtest — does not
+    re-mark as the curve moves.
+    """
+    # Build curve dict at entry from the leg yields
+    entry_row = df.loc[level.index[0], tenors]
+    curve_dict = {t: float(entry_row[t]) for t in tenors
+                  if not pd.isna(entry_row[t])}
+    # Overnight rate at entry (best-effort; defaults to 5.3 if not found)
+    on_rate = 5.3
+    for col in ["SOFR", "DFF", "EFFR"]:
+        if col in df.columns:
+            v = df[col].loc[:level.index[0]].dropna()
+            if len(v):
+                on_rate = float(v.iloc[-1]); break
+    try:
+        if trade_type == "Outright":
+            cr = fi.forward_carry_rolldown(curve_dict, on_rate, "outright", tenors[0])
+        elif trade_type == "Curve":
+            cr = fi.forward_carry_rolldown(curve_dict, on_rate, "spread",
+                                            tenors[1], tenors[0])
+        else:
+            cr = fi.forward_carry_rolldown(curve_dict, on_rate, "fly",
+                                            tenors[0], tenors[1], tenors[2])
+        # carry/rolldown comes back per-month; ×12 for annual
+        annual_bps = (cr.get("total", 0.0) or 0.0) * 12.0
+    except Exception:
+        annual_bps = 0.0
+    # Receivers benefit from positive carry; payers from negative carry
+    return annual_bps * (1.0 if direction == "receive" else -1.0)
+
+carry_annual_bps = _compute_entry_carry_bps_annual() if bake_carry else 0.0
+days_elapsed = pd.Series(range(len(level)), index=level.index, dtype=float)
+carry_cum = (carry_annual_bps / 252.0) * days_elapsed
+
+# 3. Transaction costs — paid up-front at entry and exit
+def _compute_tcost_bps() -> float:
+    if not bake_tcost:
+        return 0.0
+    if trade_type == "Outright":
+        return fi.tcost_outright_bps(_TY_MAP.get(tenors[0], 10), instrument=_instr)
+    if trade_type == "Curve":
+        return fi.tcost_curve_bps(_TY_MAP.get(tenors[0], 2), _TY_MAP.get(tenors[1], 10),
+                                   instrument=_instr)
+    return fi.tcost_fly_bps(_TY_MAP.get(tenors[0], 2), _TY_MAP.get(tenors[1], 5),
+                             _TY_MAP.get(tenors[2], 10), instrument=_instr)
+
+tcost_bps = _compute_tcost_bps()
+# Entry cost paid on day 1, exit cost paid on the last day. For the cumulative
+# series, we charge half at entry and half at the end so the curve dips at both
+# ends — visually shows the "drag" without artificially front-loading.
+half_tcost = tcost_bps / 2.0
+tcost_cum = pd.Series(0.0, index=level.index)
+if len(tcost_cum):
+    tcost_cum.iloc[0]  = -half_tcost   # entry slip
+    tcost_cum.iloc[-1] = -tcost_bps    # entry + exit slip
+    # Linear interp between is misleading; just step the second hit at the end
+    # by carrying the entry value forward
+    tcost_cum = tcost_cum.replace(0.0, np.nan).ffill().fillna(-half_tcost) \
+                          if len(tcost_cum) > 1 else tcost_cum
+
+# Total cumulative P&L
+pnl_bps = directional_cum + carry_cum + tcost_cum
+daily_pnl = pnl_bps.diff().fillna(0.0)
 
 # ── Stats ─────────────────────────────────────────────────────────────────
 days       = len(daily_pnl)
@@ -214,6 +314,19 @@ from dashboard.components.signal_card import render_signal_card, render_units_le
 
 # Approximate Z by the level vs its full-window mean
 _z = float((level.iloc[-1] - level.mean()) / level.std()) if level.std() > 0 else 0.0
+dir_total   = float(directional_cum.iloc[-1])
+carry_total = float(carry_cum.iloc[-1])
+tcost_total = float(tcost_cum.iloc[-1])
+note_lines = [
+    f"Backtest window: {level.index[0].date()} → {level.index[-1].date()}.",
+    f"<b>P&L decomposition (bps):</b> "
+    f"directional {dir_total:+.0f}  ·  "
+    f"carry {carry_total:+.0f}  ·  "
+    f"transaction cost {tcost_total:+.0f}  →  total <b>{total_bps:+.0f}</b>.",
+]
+if not bake_carry: note_lines.append("⚠️ Carry excluded by toggle.")
+if not bake_tcost: note_lines.append("⚠️ Transaction costs excluded by toggle.")
+
 render_signal_card(
     trade=("Rcv " if direction == "receive" else "Pay ") + "/".join(tenors),
     type_=trade_type,
@@ -225,10 +338,18 @@ render_signal_card(
     max_dd_bps=max_dd,
     days=days,
     direction=direction,
-    note=(f"Backtest window: {level.index[0].date()} → {level.index[-1].date()}. "
-          f"PnL = level-change × direction (no carry/roll, no transaction costs). "
-          f"For carry-aware E[Ret], see the Trade Decomposition page."),
+    note=" ".join(note_lines),
 )
+
+# P&L breakdown — explicit cards
+brk1, brk2, brk3, brk4 = st.columns(4)
+brk1.metric("Directional",      f"{dir_total:+.0f} bps")
+brk2.metric("Carry (baked in)", f"{carry_total:+.0f} bps",
+            delta=f"{carry_annual_bps:+.0f} bps/yr at entry"
+                  if bake_carry else "off")
+brk3.metric("Transaction cost", f"{tcost_total:+.0f} bps",
+            delta=f"−{tcost_bps:.1f} bps round-trip" if bake_tcost else "off")
+brk4.metric("Total",            f"{total_bps:+.0f} bps")
 with st.expander("Units key"):
     render_units_legend()
 
@@ -290,7 +411,10 @@ with st.expander("📊 Daily PnL distribution"):
 # ── Summary export ────────────────────────────────────────────────────────
 with st.expander("📋 Export"):
     out = pd.DataFrame({
-        "level":       level,
+        "level":              level,
+        "directional_bps":    directional_cum,
+        "carry_bps":          carry_cum,
+        "tcost_bps":          tcost_cum,
         "cumulative_pnl_bps": cum,
         "daily_pnl_bps":      daily_pnl,
         "drawdown_bps":       drawdown,
