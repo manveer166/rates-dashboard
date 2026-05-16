@@ -159,6 +159,10 @@ for p in picks:
 if not records:
     st.warning("Picks found but couldn't compute PnL — yields data may be missing.")
     st.stop()
+    # Defensive: st.stop() doesn't actually stop in bare/test mode. Hard
+    # fence so smoke tests + the if-records-was-empty path don't crash on
+    # the missing-column references further down.
+    raise SystemExit(0)
 
 picks_df = pd.DataFrame(records)
 
