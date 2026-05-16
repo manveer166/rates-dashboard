@@ -142,9 +142,18 @@ ranking margin.
   flies. Fly receivers typically show **negative** convexity (short the
   wings dominates the belly).
 - Trade Builder: shown alongside DV01 in the ticket.
-- Backtester: P&L includes a convexity adjustment for large yield moves
-  (small for typical backtest windows).
+- Backtester: P&L now includes a per-leg ½·C·Δy² adjustment on every
+  daily mark (see section 7).
 - Risk file: `fixed_income/risk.py::convexity_par()`.
+
+**A note on units (history):** Earlier versions of the Analysis page
+expressed convexity in **price bps** (`½·C·σ² × 10000`) rather than
+**yield-bps-equivalent** (`½·C·σ²·notional / DV01`). Adding price-bps
+convexity to yield-bps carry+roll overstated E[Ret] by roughly the
+leg's modified duration (≈15× for 30Y, ≈12× for 20Y). All pages now
+route through `fi.convexity_pickup_bps` so units are uniform. If you
+remember Sharpe scores around 0.9 on long-end outrights — those have
+correctly compressed to the 0.2-0.3 region. The screen is honest now.
 
 **Multi-leg convexity (curves & flies):**
 

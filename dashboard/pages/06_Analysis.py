@@ -178,26 +178,37 @@ if section.startswith("0"):
         return fi.approx_dv01(yrs, rate)
 
     def _dv01_bps(tenor_label):
-        """DV01 in bps (per 100 notional) = approx_dv01($) / 100."""
+        """DV01 expressed per $100k notional ($ per bp).
+
+        For a par bond, DV01($/$1M)/100 equals modified duration in
+        years (since DV01_per_$1M = ModDur × 100 for par). So the
+        number displayed in this column is ALSO numerically equal to
+        the leg's modified duration — useful as a quick "years of rate
+        sensitivity" reference."""
         return round(_dv01(tenor_label) / 100.0, 4)
 
     def _raw_convexity(tenor_label):
-        """Raw bond convexity (second derivative of price w.r.t. yield)."""
+        """Raw bond convexity (second derivative of price w.r.t. yield).
+        Thin wrapper on the risk module so every page agrees on C."""
         yrs = TY.get(tenor_label, 10.0)
         rate = curve.get(tenor_label, 4.0)
-        cfs = fi.bond_cashflows(rate, yrs, notional=100.0, freq=2)
-        return fi.convexity(cfs, rate, freq=2)
+        return fi.convexity_par(yrs, rate)
 
     def _convexity_pickup_bps(tenor_label, rvol_bps):
-        """Annualised expected convexity P&L in bps.
-        = 0.5 * Convexity * σ²_annual   (σ in decimal yield)
-        Result in bps (× 10000).
+        """Annualised expected convexity P&L, in YIELD bps equivalent.
+
+        Previously this returned PRICE bps (= ½·C·σ² × 1e4), which when
+        added to carry/roll (in yield bps) inflated E[Ret] by the modified
+        duration of the leg (~15× for 30Y, ~12× for 20Y). Now routes
+        through fixed_income.risk.convexity_pickup_bps which normalises by
+        DV01 to give a yield-bps-equivalent that's directly addable to
+        carry+roll.
         """
         if rvol_bps is None or np.isnan(rvol_bps) or rvol_bps <= 0:
             return 0.0
-        conv = _raw_convexity(tenor_label)
-        vol_dec = rvol_bps / 10000.0  # bps → decimal yield
-        return 0.5 * conv * (vol_dec ** 2) * 10000  # bps
+        yrs = TY.get(tenor_label, 10.0)
+        rate = curve.get(tenor_label, 4.0)
+        return fi.convexity_pickup_bps(yrs, rate, rvol_bps)
 
     _beta_ref = "10Y"
     def _compute_betas():
@@ -224,37 +235,47 @@ if section.startswith("0"):
         _tenor_vols[t] = float(dchg.tail(vol_window).std() * np.sqrt(252)) if len(dchg) >= vol_window else np.nan
 
     def _per_leg_conv_bps(tenor_label):
-        """Annualised convexity pickup for a single tenor (bps/yr)."""
+        """Annualised convexity pickup for a single tenor (yield-bps/yr).
+
+        Routes through fixed_income.risk so units match carry + roll.
+        Previously returned price-bps (overcounted by ~MD years).
+        """
         v = _tenor_vols.get(tenor_label)
         if v is None or np.isnan(v) or v <= 0:
             return 0.0
-        c = _raw_convexity(tenor_label)
-        vol_dec = v / 10000.0
-        return 0.5 * c * (vol_dec ** 2) * 10000
+        return _convexity_pickup_bps(tenor_label, v)
 
     def _net_conv_bps(trade_type, t1, t2=None, t3=None):
-        """Net portfolio convexity pickup in bps/yr (before direction sign).
+        """Net portfolio convexity in yield-bps/yr (before direction sign).
 
-        Curve (receive t2, pay t1 DV01-weighted):
-          +per_leg(t2) − (DV01_t2/DV01_t1) × per_leg(t1)
+        Uses the multi-leg helpers from fixed_income.risk so the DV01-
+        notional bookkeeping is consistent across pages. The helpers
+        return the net P&L expressed in yield-bps at the LONG / BELLY
+        leg's DV01.
 
-        Fly (receive belly, pay wings DV01-weighted):
-          The fly = w_b×belly − w1 − w_w2×w2  (in rate space).
-          Long fly ⇒ long belly rate / short wing rates
-          ⇒ short belly bond (+ve), long wing bonds (-ve for conv sign).
-          Net conv = +per_leg(w1) + w_w2×per_leg(w2) − w_b×per_leg(belly)
+        Sign of result: positive means a receive structure picks up
+        convexity over the year; negative means it loses (typical for
+        fly receivers with long-end wings).
         """
+        # Use the long-leg / belly's own rvol as the parallel-shift proxy.
+        # (Not the DV01-weighted hybrid spread vol, which is amplified
+        # by the leg-DV01 ratio and would massively overstate convexity.)
         if trade_type == "Outright":
             return _per_leg_conv_bps(t1)
-        elif trade_type in ("Curve", "Curve*"):
-            d1, d2 = _dv01(t1), _dv01(t2)
-            ratio = d2 / d1 if d1 > 0 else 1.0
-            return _per_leg_conv_bps(t2) - ratio * _per_leg_conv_bps(t1)
-        elif trade_type in ("Fly", "Fly*"):
-            d_w1, d_b, d_w2 = _dv01(t1), _dv01(t2), _dv01(t3)
-            w_b = 2.0 * (d_w1 / d_b) if d_b > 0 else 2.0
-            w_w2 = d_w1 / d_w2 if d_w2 > 0 else 1.0
-            return _per_leg_conv_bps(t1) + w_w2 * _per_leg_conv_bps(t3) - w_b * _per_leg_conv_bps(t2)
+        if trade_type in ("Curve", "Curve*"):
+            v_long = _tenor_vols.get(t2)
+            if v_long is None or np.isnan(v_long) or v_long <= 0:
+                return 0.0
+            y1, y2 = TY.get(t1, 2.0),       TY.get(t2, 10.0)
+            r1, r2 = curve.get(t1, 4.0),    curve.get(t2, 4.0)
+            return fi.spread_convexity_bps(y1, r1, y2, r2, v_long)
+        if trade_type in ("Fly", "Fly*"):
+            v_belly = _tenor_vols.get(t2)
+            if v_belly is None or np.isnan(v_belly) or v_belly <= 0:
+                return 0.0
+            y1, yb, y3 = TY.get(t1, 2.0), TY.get(t2, 5.0), TY.get(t3, 10.0)
+            r1, rb, r3 = curve.get(t1, 4.0), curve.get(t2, 4.0), curve.get(t3, 4.0)
+            return fi.fly_convexity_bps(y1, r1, yb, rb, y3, r3, v_belly)
         return 0.0
 
     # ── series builders ──
@@ -314,7 +335,7 @@ if section.startswith("0"):
         row = {
             "Trade": trade_label, "Type": trade_type,
             "Level": round(curr_display, 3 if trade_type == "Outright" else 1),
-            "DV01": round(dv01_bps_val, 2) if not np.isnan(dv01_bps_val) else np.nan,
+            "DV01 / ModDur": round(dv01_bps_val, 2) if not np.isnan(dv01_bps_val) else np.nan,
             "Carry": round(carry_bps, 1),
             "Roll": round(roll_bps, 1),
             "Conv": round(conv_ann_bps, 1),
@@ -492,7 +513,7 @@ if section.startswith("0"):
             fmt["Level"] = "{:.3f}"
             fmt["Sharpe"] = "{:.2f}"
             fmt["Z"] = "{:.2f}"
-            fmt["DV01"] = "{:.2f}"
+            fmt["DV01 / ModDur"] = "{:.2f}"
             fmt["Conv"] = "{:.1f}"
 
             # Apply colour gradient on every numeric column
@@ -518,8 +539,9 @@ if section.startswith("0"):
             if "Conv" in result.columns:
                 styler = styler.background_gradient(subset=["Conv"], cmap="RdYlGn", vmin=0, vmax=10)
             # DV01: neutral gradient
-            if "DV01" in result.columns:
-                styler = styler.background_gradient(subset=["DV01"], cmap="Blues", vmin=0, vmax=20)
+            if "DV01 / ModDur" in result.columns:
+                styler = styler.background_gradient(subset=["DV01 / ModDur"],
+                                                     cmap="Blues", vmin=0, vmax=20)
             # Risk: lower = green, higher = red (inverted)
             if "Risk" in result.columns:
                 styler = styler.background_gradient(subset=["Risk"], cmap="RdYlGn_r", vmin=20, vmax=120)
