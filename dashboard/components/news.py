@@ -35,17 +35,21 @@ _BASE_UTM = {"utm_source": "macromanv_dashboard", "utm_medium": "rss_widget"}
 
 # ── Fetch + parse ─────────────────────────────────────────────────────────
 
-@st.cache_data(ttl=900, show_spinner=False)
-def _fetch(url: str, limit: int = 10) -> List[Dict]:
-    """Return [{title, link, published, summary}, …] or [] on failure."""
+_RSS_USER_AGENT = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 macromanv-dashboard/1.0")
+
+
+def _fetch_raw(url: str, limit: int = 10) -> List[Dict]:
+    """Direct RSS pull — no caching. Some sites (ECB, BoE) 403 the default
+    feedparser user-agent, so we pass a browser-like UA."""
     try:
         import feedparser
     except ImportError:
         logger.warning("feedparser not installed — `pip install feedparser`")
         return []
     try:
-        feed = feedparser.parse(url)
-        out  = []
+        feed = feedparser.parse(url, agent=_RSS_USER_AGENT)
+        out = []
         for e in feed.entries[:limit]:
             out.append({
                 "title":     str(e.get("title", "(untitled)")).strip(),
@@ -57,6 +61,31 @@ def _fetch(url: str, limit: int = 10) -> List[Dict]:
     except Exception as ex:
         logger.warning("RSS fetch failed for %s: %s", url, ex)
         return []
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _fetch_cached(url: str, limit: int = 10) -> List[Dict]:
+    """Cached wrapper. Only the non-empty path is worth caching — an empty
+    result usually means a transient network blip and we'd rather retry
+    on the next render than show 'Feed unavailable' for 15 minutes."""
+    return _fetch_raw(url, limit)
+
+
+def _fetch(url: str, limit: int = 10) -> List[Dict]:
+    """Return [{title, link, published, summary}, …]. Auto-retries when
+    the cache layer has an empty result — fixes the 'cached transient
+    failure' pattern that made ECB show 'Feed unavailable' for 15min."""
+    items = _fetch_cached(url, limit)
+    if items:
+        return items
+    # Cache had an empty entry; try fresh (bypassing cache) and, if that
+    # succeeds, clear the bad cached entry so subsequent renders pick up
+    # the fresh data immediately.
+    fresh = _fetch_raw(url, limit)
+    if fresh:
+        try: _fetch_cached.clear()
+        except Exception: pass
+    return fresh
 
 
 def _utm(link: str, campaign: str) -> str:
