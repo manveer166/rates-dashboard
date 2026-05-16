@@ -324,37 +324,51 @@ st.divider()
 
 
 # ── Backtester P&L composition ───────────────────────────────────────────
-st.subheader("7. Backtester — three-component P&L")
+st.subheader("7. Backtester — four-component P&L")
 st.markdown(
     """
 Total P&L decomposes into:
 
-1. **Directional**: $\\text{sign} \\times (level_t - level_{\\text{entry}}) \\times 100$ bps
+1. **Directional** (linear DV01): $\\text{sign} \\times (level_t - level_{\\text{entry}}) \\times 100$ bps
 2. **Carry (path-dependent)**: for each day $t$ in the backtest, recompute
    the annual carry $C_t$ from that day's curve via
    `forward_carry_rolldown`, then accrue $C_t / 252$ to the daily P&L.
-   This is significantly more accurate than the old "compute carry at
-   entry and hold constant" — a 1-year backtest in a moving market earns
-   different carry each day as the curve shape evolves.
-3. **Transaction cost**: $-\\text{round-trip bid/ask}$, charged half at
+   A 1-year backtest in a moving market earns different carry each day
+   as the curve shape evolves.
+3. **Convexity (second-order)**: for each leg and each day,
+   $\\tfrac{1}{2}\\,C\\,(\\Delta y)^2\\,\\text{notional}$ where $\\Delta y$
+   is the leg's yield move from entry. Receivers gain (long bonds are
+   convex up); payers lose. Net is positive for typical curve receivers
+   (long leg dominates) and **negative for receive-belly flies** because
+   the wings — especially long-end wings — short more convexity than
+   the belly carries.
+4. **Transaction cost**: $-\\text{round-trip bid/ask}$, charged half at
    entry and the remainder at exit.
 
-Each component is shown separately on the page, and exported in the CSV
-under columns `directional_bps`, `carry_bps`, `tcost_bps`,
-`cumulative_pnl_bps`. The Backtester also renders the **carry path** —
-a chart showing how the annualised carry rate evolved throughout the
-holding window. Flat = stable curve; dispersed = position lived through
-different carry environments.
+Each component is shown separately on the page (5-column metric strip),
+exported in the CSV under `directional_bps`, `carry_bps`, `convexity_bps`,
+`tcost_bps`, `cumulative_pnl_bps`. The Backtester also renders the
+**carry path** chart showing how the annualised carry rate evolved
+throughout the window.
+
+**Sign conventions (for the convexity term):**
+
+| Trade | Receive direction | Convexity sign |
+|---|---|---|
+| Outright (any tenor) | long bond | + (always favourable) |
+| Curve (receive long / pay short) | net | + (long leg dominates) |
+| Curve (steepener: pay long / receive short) | net | − |
+| Belly fly (receive belly / pay wings) | net | typically − for long-end wings |
 
 **What's still approximated:**
 
 - No slippage beyond the bid/ask. Real execution at size pays more,
   especially in the long end and during stress.
-- No convexity adjustment to daily P&L. Small for most backtest windows
-  but for big yield moves the directional component overstates the loss
-  (or understates the gain) for a long-convex position.
 - Carry is computed on the **swap/Treasury par curve** with SOFR funding,
   not on a trade-specific repo curve. Real repo spreads vary by issue.
+- Convexity uses **entry-time** $C$ (locked-in), with $\\Delta y$
+  re-evaluated daily. For tighter accuracy at large yield moves you'd
+  re-mark $C$ daily too — small effect in practice.
 """
 )
 st.divider()
@@ -420,7 +434,7 @@ st.markdown(
 | **Funding** | SOFR for everything | Trade-specific repo / collateral curves |
 | **Carry in backtest** | ✅ Re-marked daily from prevailing curve | Match (already done) |
 | **Slippage** | Bid/ask only | Size-impact model, intraday execution slippage |
-| **Convexity** | ✅ In scanner E[Ret]; not yet in backtester daily P&L | Convexity-adjusted P&L on every mark |
+| **Convexity** | ✅ In scanner E[Ret] AND in backtester daily P&L (per-leg ½·C·Δy² on every mark) | Match (already done) |
 | **Regime** | ✅ K-means + empirical Markov transitions | Full Markov-switching / HMM joint fit |
 | **Mean reversion** | ✅ Empirical OU fit per pair (was 50% heuristic) | Match (already done) |
 | **Cross-currency** | Not modelled | Full xccy basis curves |

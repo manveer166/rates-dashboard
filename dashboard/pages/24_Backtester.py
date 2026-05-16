@@ -105,20 +105,26 @@ with c6:
     )
 
 # ── Cost & carry toggles ──────────────────────────────────────────────────
-cost_col1, cost_col2, cost_col3 = st.columns(3)
+cost_col1, cost_col2, cost_col3, cost_col4 = st.columns(4)
 with cost_col1:
     bake_carry = st.checkbox(
         "Bake in carry", value=True, key="bt_carry",
-        help=("Adds a daily accrual = annual carry / 252. Carry is computed "
-              "once at entry from the forward curve and held constant."),
+        help=("Path-dependent: carry recomputed every day from that day's "
+              "curve via forward_carry_rolldown, accrued daily."),
     )
 with cost_col2:
+    bake_convexity = st.checkbox(
+        "Bake in convexity", value=True, key="bt_convexity",
+        help=("Adds second-order P&L: ½·C·Δy²·notional, computed per leg "
+              "from entry-time convexity. Receivers gain, payers lose."),
+    )
+with cost_col3:
     bake_tcost = st.checkbox(
         "Bake in transaction costs", value=True, key="bt_tcost",
         help=("Subtracts round-trip bid/ask widths from total P&L. Defaults "
               "are practitioner-consensus widths for USD on-the-run."),
     )
-with cost_col3:
+with cost_col4:
     cost_instrument = st.selectbox(
         "Bid/ask source",
         ["treasury (cash)", "swap"],
@@ -270,7 +276,86 @@ else:
     carry_annual_bps = 0.0
     carry_avg_annual_bps = 0.0
 
-# 3. Transaction costs — paid up-front at entry and exit
+# 3. Convexity-adjusted P&L — second-order term on every mark
+# For each leg, P&L_conv = sign × ½ × C × (Δy)² × leg_notional, summed
+# across legs and converted to bps yield-equivalent at the long leg's DV01.
+# Receivers gain from convexity (long bonds are convex up), payers lose.
+def _compute_convexity_path() -> pd.Series:
+    """Per-day cumulative convexity P&L in bps yield-equivalent.
+
+    Convexity is computed from entry-time yields (locked-in) so it stays
+    consistent with the entry DV01 weights. The Δy term is path-dependent
+    — uses each leg's yield at every date in the window.
+    """
+    if not bake_convexity:
+        return pd.Series(0.0, index=level.index)
+
+    leg_yields = df[tenors].loc[level.index]
+    entry_yields = leg_yields.iloc[0]
+    is_receiver = (direction == "receive")
+
+    # Per-leg convexity at entry yield (par-bond convention)
+    leg_convs = {
+        t: fi.convexity_par(_TY_MAP.get(t, 10), float(entry_yields[t]))
+        for t in tenors
+    }
+
+    if trade_type == "Outright":
+        t = tenors[0]
+        years = _TY_MAP.get(t, 10)
+        dv01_pb = fi.dv01_par(years, float(entry_yields[t]))
+        if dv01_pb <= 0:
+            return pd.Series(0.0, index=level.index)
+        dy_dec = (leg_yields[t] - entry_yields[t]) / 100.0
+        sign_leg = 1.0 if is_receiver else -1.0
+        dollar_pnl = sign_leg * 0.5 * leg_convs[t] * (dy_dec ** 2) * 1e6
+        return (dollar_pnl / dv01_pb).fillna(0.0)
+
+    if trade_type == "Curve":
+        # tenors = [short, long]
+        t1, t2 = tenors
+        years1, years2 = _TY_MAP.get(t1, 2), _TY_MAP.get(t2, 10)
+        dv01_short = fi.dv01_par(years1, float(entry_yields[t1]))
+        dv01_long  = fi.dv01_par(years2, float(entry_yields[t2]))
+        if dv01_short <= 0 or dv01_long <= 0:
+            return pd.Series(0.0, index=level.index)
+        # DV01-neutral: short notional = (dv01_long / dv01_short) × $1M
+        ratio = dv01_long / dv01_short
+        dy_short_dec = (leg_yields[t1] - entry_yields[t1]) / 100.0
+        dy_long_dec  = (leg_yields[t2] - entry_yields[t2]) / 100.0
+        # Receive long (+conv), pay short (-conv). Flip for payer.
+        sign_long, sign_short = (1.0, -1.0) if is_receiver else (-1.0, 1.0)
+        long_pnl  = sign_long  * 0.5 * leg_convs[t2] * (dy_long_dec ** 2)  * 1e6
+        short_pnl = sign_short * 0.5 * leg_convs[t1] * (dy_short_dec ** 2) * (ratio * 1e6)
+        return ((long_pnl + short_pnl) / dv01_long).fillna(0.0)
+
+    # Fly: tenors = [wing1, belly, wing2]
+    w1, b, w2 = tenors
+    yw1, yb, yw2 = _TY_MAP.get(w1, 2), _TY_MAP.get(b, 5), _TY_MAP.get(w2, 10)
+    dv01_w1 = fi.dv01_par(yw1, float(entry_yields[w1]))
+    dv01_b  = fi.dv01_par(yb,  float(entry_yields[b]))
+    dv01_w2 = fi.dv01_par(yw2, float(entry_yields[w2]))
+    if min(dv01_w1, dv01_b, dv01_w2) <= 0:
+        return pd.Series(0.0, index=level.index)
+    # DV01-neutral: belly $1M; each wing notional = 0.5 × dv01_b/dv01_wi
+    r1 = 0.5 * dv01_b / dv01_w1
+    r2 = 0.5 * dv01_b / dv01_w2
+    dy_w1_dec = (leg_yields[w1] - entry_yields[w1]) / 100.0
+    dy_b_dec  = (leg_yields[b]  - entry_yields[b])  / 100.0
+    dy_w2_dec = (leg_yields[w2] - entry_yields[w2]) / 100.0
+    sign_b, sign_w = (1.0, -1.0) if is_receiver else (-1.0, 1.0)
+    belly_pnl = sign_b * 0.5 * leg_convs[b]  * (dy_b_dec  ** 2) * 1e6
+    w1_pnl    = sign_w * 0.5 * leg_convs[w1] * (dy_w1_dec ** 2) * (r1 * 1e6)
+    w2_pnl    = sign_w * 0.5 * leg_convs[w2] * (dy_w2_dec ** 2) * (r2 * 1e6)
+    return ((belly_pnl + w1_pnl + w2_pnl) / dv01_b).fillna(0.0)
+
+
+conv_cum = _compute_convexity_path()
+conv_annual_avg_bps = (float(conv_cum.iloc[-1] * 252 / len(conv_cum))
+                       if bake_convexity and len(conv_cum) else 0.0)
+
+
+# 4. Transaction costs — paid up-front at entry and exit
 def _compute_tcost_bps() -> float:
     if not bake_tcost:
         return 0.0
@@ -296,8 +381,8 @@ if len(tcost_cum):
     tcost_cum = tcost_cum.replace(0.0, np.nan).ffill().fillna(-half_tcost) \
                           if len(tcost_cum) > 1 else tcost_cum
 
-# Total cumulative P&L
-pnl_bps = directional_cum + carry_cum + tcost_cum
+# Total cumulative P&L (directional + carry + convexity − tcosts)
+pnl_bps = directional_cum + carry_cum + conv_cum + tcost_cum
 daily_pnl = pnl_bps.diff().fillna(0.0)
 
 # ── Stats ─────────────────────────────────────────────────────────────────
@@ -346,16 +431,19 @@ from dashboard.components.signal_card import render_signal_card, render_units_le
 _z = float((level.iloc[-1] - level.mean()) / level.std()) if level.std() > 0 else 0.0
 dir_total   = float(directional_cum.iloc[-1])
 carry_total = float(carry_cum.iloc[-1])
+conv_total  = float(conv_cum.iloc[-1])
 tcost_total = float(tcost_cum.iloc[-1])
 note_lines = [
     f"Backtest window: {level.index[0].date()} → {level.index[-1].date()}.",
     f"<b>P&L decomposition (bps):</b> "
     f"directional {dir_total:+.0f}  ·  "
     f"carry {carry_total:+.0f}  ·  "
+    f"convexity {conv_total:+.0f}  ·  "
     f"transaction cost {tcost_total:+.0f}  →  total <b>{total_bps:+.0f}</b>.",
 ]
-if not bake_carry: note_lines.append("⚠️ Carry excluded by toggle.")
-if not bake_tcost: note_lines.append("⚠️ Transaction costs excluded by toggle.")
+if not bake_carry:     note_lines.append("⚠️ Carry excluded by toggle.")
+if not bake_convexity: note_lines.append("⚠️ Convexity excluded by toggle.")
+if not bake_tcost:     note_lines.append("⚠️ Transaction costs excluded by toggle.")
 
 render_signal_card(
     trade=("Rcv " if direction == "receive" else "Pay ") + "/".join(tenors),
@@ -371,8 +459,8 @@ render_signal_card(
     note=" ".join(note_lines),
 )
 
-# P&L breakdown — explicit cards
-brk1, brk2, brk3, brk4 = st.columns(4)
+# P&L breakdown — explicit cards (5 components: dir + carry + conv − tcost = total)
+brk1, brk2, brk3, brk4, brk5 = st.columns(5)
 brk1.metric("Directional",      f"{dir_total:+.0f} bps")
 _carry_delta = (
     f"entry {carry_annual_bps:+.0f} → avg {carry_avg_annual_bps:+.0f} bps/yr"
@@ -380,9 +468,12 @@ _carry_delta = (
 )
 brk2.metric("Carry (path-dependent)", f"{carry_total:+.0f} bps",
             delta=_carry_delta)
-brk3.metric("Transaction cost", f"{tcost_total:+.0f} bps",
+brk3.metric("Convexity (½·C·Δy²)", f"{conv_total:+.0f} bps",
+            delta=(f"avg {conv_annual_avg_bps:+.0f} bps/yr"
+                   if bake_convexity else "off"))
+brk4.metric("Transaction cost", f"{tcost_total:+.0f} bps",
             delta=f"−{tcost_bps:.1f} bps round-trip" if bake_tcost else "off")
-brk4.metric("Total",            f"{total_bps:+.0f} bps")
+brk5.metric("Total",            f"{total_bps:+.0f} bps")
 with st.expander("Units key"):
     render_units_legend()
 
@@ -485,6 +576,7 @@ with st.expander("📋 Export"):
         "level":              level,
         "directional_bps":    directional_cum,
         "carry_bps":          carry_cum,
+        "convexity_bps":      conv_cum,
         "tcost_bps":          tcost_cum,
         "cumulative_pnl_bps": cum,
         "daily_pnl_bps":      daily_pnl,
