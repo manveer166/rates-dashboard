@@ -27,6 +27,10 @@ from urllib.parse import urlencode
 import streamlit as st
 
 from dashboard.state import is_admin
+# Imported at top (not lazily inside premium_gate) — the previous lazy
+# import desynced sys.modules on Streamlit hot-reloads, producing a
+# spurious `KeyError: 'dashboard.components.tiers'` on the Analysis page.
+from dashboard.components.tiers import tier_at_or_above, current_user_tier
 
 CONFIG_PATH = Path(__file__).parent.parent.parent / "data" / "premium_pages.json"
 SUBSCRIBE_URL = "https://manveersahota.substack.com/subscribe"
@@ -63,8 +67,6 @@ def premium_gate(page_label: str, *, allow_viewer: bool = False) -> bool:
     data/subscriber_tiers.json via the email in session_state, or admin
     via password.
     """
-    from dashboard.components.tiers import tier_at_or_above, current_user_tier
-
     cfg = _load_config().get(page_label, {})
     required = cfg.get("required", "premium")
     if required == "free":
