@@ -458,8 +458,22 @@ def get_master_df(force_network: bool = False) -> pd.DataFrame:
 
 
 def refresh_data() -> None:
+    """Force a fresh network fetch — rewrites data/cache/master.parquet
+    on disk, then reruns the page so consumers pick up the new data.
+
+    Previously this only cleared the in-memory caches and rerun, which
+    meant the next `get_master_df()` call hit `_load_from_disk()` and
+    returned the same stale parquet. Now it triggers `force_network=True`
+    so the network loader runs and the disk cache is overwritten."""
     _load_from_disk.clear()
     _load_from_network.clear()
+    with st.spinner("Pulling fresh prices from Treasury / FRED / ECB…"):
+        try:
+            get_master_df(force_network=True)
+        except Exception as e:
+            st.error(f"Refresh failed: {e}")
+            return
+    st.success("✅ Cache refreshed. Reloading…")
     st.rerun()
 
 
