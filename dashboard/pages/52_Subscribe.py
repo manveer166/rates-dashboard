@@ -19,6 +19,7 @@ import streamlit as st
 
 from dashboard.components.stripe_integration import (
     create_checkout_session, stripe_configured, TIER_CONFIG,
+    substack_channel_enabled,
 )
 
 st.set_page_config(page_title="Subscribe", page_icon="💎", layout="centered")
@@ -102,14 +103,39 @@ with col_pro:
 
 st.write("")
 
+# Read ?tier= query param so deep-links from email / LinkedIn can preselect
+_default_tier = "founding"
+try:
+    _qp_tier = st.query_params.get("tier", "").lower().strip()
+    if _qp_tier in ("founding", "pro"):
+        _default_tier = _qp_tier
+except Exception:
+    pass
+
+# Build the option list. Direct tiers are always shown. Substack-channel
+# tiers appear only when Price IDs are configured — the "save 10% direct"
+# framing only makes sense when both channels are live.
+_options = ["founding", "pro"]
+_labels  = {
+    "founding": "🔒 Founding — $29/mo (10-yr lock)",
+    "pro":      "⚡ Pro — $49/mo (standard)",
+}
+if substack_channel_enabled():
+    _options += ["founding_substack", "pro_substack"]
+    _labels["founding_substack"] = "🪶 Founding via Substack — $32/mo (10% more, billed through Substack)"
+    _labels["pro_substack"]      = "🪶 Pro via Substack — $54/mo (10% more, billed through Substack)"
+    st.info(
+        "💡 **Save 10% by subscribing direct.** Substack-channel options "
+        "exist for readers who prefer one-bill-everywhere — but the same "
+        "access is 10% cheaper via the direct Stripe tier."
+    )
+
 tier = st.radio(
     "Select tier",
-    options=["founding", "pro"],
-    format_func=lambda t: (
-        f"🔒 Founding — $29/mo (10-yr lock)" if t == "founding"
-        else "⚡ Pro — $49/mo (standard)"
-    ),
-    horizontal=True,
+    options=_options,
+    index=_options.index(_default_tier) if _default_tier in _options else 0,
+    format_func=lambda t: _labels.get(t, t),
+    horizontal=(len(_options) == 2),
     label_visibility="collapsed",
 )
 

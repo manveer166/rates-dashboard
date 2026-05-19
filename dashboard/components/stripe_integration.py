@@ -62,6 +62,13 @@ def _stripe():
 
 
 # Tier → Stripe Price ID + monthly price (for display)
+#
+# The `_substack` variants are at +10% premium and dormant until you set
+# the matching Price IDs in secrets. They unlock the "save 10% by going
+# direct" framing on the Subscribe page: list both channels side-by-side,
+# point the discount at the direct route. Don't turn these on until you've
+# filled the first 50-100 direct seats — see notes in
+# legal/STRIPE_SETUP.md → Part 7 (Dual-channel pricing).
 TIER_CONFIG = {
     "founding": {
         "display_name": "Founding Seat",
@@ -69,6 +76,7 @@ TIER_CONFIG = {
         "lock_years":   10,
         "limit":        100,
         "price_id_key": "STRIPE_FOUNDING_PRICE_ID",
+        "channel":      "direct",
     },
     "pro": {
         "display_name": "Pro",
@@ -76,6 +84,7 @@ TIER_CONFIG = {
         "lock_years":   None,
         "limit":        None,
         "price_id_key": "STRIPE_PRO_PRICE_ID",
+        "channel":      "direct",
     },
     "substack_tier": {
         "display_name": "Substack tier",
@@ -83,8 +92,37 @@ TIER_CONFIG = {
         "lock_years":   None,
         "limit":        None,
         "price_id_key": "STRIPE_SUBSTACK_PRICE_ID",
+        "channel":      "direct",
+    },
+    # ── Dual-channel scaffolding — dormant until Price IDs are set ──────
+    "founding_substack": {
+        "display_name": "Founding (via Substack)",
+        "price_usd":    32,        # = 29 × 1.10
+        "lock_years":   10,
+        "limit":        100,
+        "price_id_key": "STRIPE_FOUNDING_SUBSTACK_PRICE_ID",
+        "channel":      "substack",
+    },
+    "pro_substack": {
+        "display_name": "Pro (via Substack)",
+        "price_usd":    54,        # = 49 × 1.10
+        "lock_years":   None,
+        "limit":        None,
+        "price_id_key": "STRIPE_PRO_SUBSTACK_PRICE_ID",
+        "channel":      "substack",
     },
 }
+
+
+def substack_channel_enabled() -> bool:
+    """True iff at least one Substack-channel Price ID is configured.
+
+    When True, the Subscribe page exposes the Substack tier alongside
+    the direct tier, with the "10% off direct" framing. When False, the
+    Substack tiers stay hidden — the only visible options are direct.
+    """
+    return bool(_secret("STRIPE_FOUNDING_SUBSTACK_PRICE_ID")
+                or _secret("STRIPE_PRO_SUBSTACK_PRICE_ID"))
 
 
 def stripe_price_id_for(tier: str) -> Optional[str]:
