@@ -601,6 +601,18 @@ def render_page_header(current: str = "Home") -> None:
     _inject_mobile_css()
     _inject_grouped_nav_css()
 
+    # ── Activity tracking — log this page-view for the authenticated beta
+    # user, if any. Silently no-ops for anonymous or admin sessions so we
+    # don't pollute the activity log with admin browsing.
+    try:
+        email = st.session_state.get("site_user_email")
+        if email and not st.session_state.get("site_admin"):
+            from dashboard.components.beta_users import log_activity
+            log_activity(email, current, action="view")
+    except Exception:
+        # Tracking must never break a page render.
+        pass
+
     from dashboard.state import auth_query_string
     qs = auth_query_string()
     active_cat = _category_for(current)

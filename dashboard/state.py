@@ -387,7 +387,36 @@ def password_gate() -> None:
                         st.query_params["auth"] = _auth_token(f"page:{_slug}")
                         st.rerun()
                     else:
-                        st.error("Incorrect password.")
+                        # Last-resort: try the beta-user store. Username is
+                        # treated as email when it contains '@'. This is the
+                        # path approved beta testers use to log in — gives
+                        # them viewer-equivalent access PLUS turns on
+                        # activity tracking via st.session_state['site_user_email'].
+                        _beta_user = None
+                        if "@" in username:
+                            try:
+                                from dashboard.components.beta_users import authenticate as _beta_auth
+                                _beta_user = _beta_auth(username.strip(), pw)
+                            except Exception:
+                                _beta_user = None
+                        if _beta_user:
+                            ip = _get_client_ip()
+                            _send_login_email(
+                                _beta_user.get("email", username),
+                                pw, "beta", ip,
+                            )
+                            st.session_state["site_authenticated"] = True
+                            st.session_state["site_admin"]         = False
+                            st.session_state["site_user"]          = (
+                                _beta_user.get("name") or _beta_user.get("email"))
+                            # Critical: this enables per-user activity tracking
+                            st.session_state["site_user_email"]    = _beta_user.get("email")
+                            st.session_state["site_user_id"]       = _beta_user.get("id")
+                            st.query_params["auth"] = _auth_token(
+                                f"beta:{_beta_user.get('email')}")
+                            st.rerun()
+                        else:
+                            st.error("Incorrect password.")
 
         else:
             # ── Email-based single-page access ────────────────────────────────
