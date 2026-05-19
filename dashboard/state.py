@@ -468,6 +468,61 @@ def init_session_state() -> None:
         if key not in st.session_state:
             st.session_state[key] = val
 
+    # ── Stripe checkout return-URL handler ───────────────────────────────
+    # When Stripe completes a payment it redirects to ?stripe_session=cs_xxx.
+    # On every render we look for that param and, if present, verify the
+    # session with Stripe and flip the user's tier. Idempotent — re-running
+    # with the same session_id is a no-op after the first success.
+    _handle_stripe_callback()
+
+
+def _handle_stripe_callback() -> None:
+    """Process the ?stripe_session=… query param after a checkout return.
+
+    Silently no-ops if there is no Stripe session in the URL. Surfaces a
+    success / error banner at the top of the page when one is present.
+    """
+    try:
+        params = st.query_params
+        session_id = params.get("stripe_session")
+        if not session_id:
+            return
+        # Avoid double-processing on rerun by keeping a per-session flag
+        flag_key = f"_stripe_processed_{session_id}"
+        if st.session_state.get(flag_key):
+            return
+        from dashboard.components.stripe_integration import process_completion
+        result = process_completion(session_id)
+        st.session_state[flag_key] = True
+
+        if result.get("ok"):
+            st.success(
+                f"🎉 **Subscription active.** {result.get('message','')}  "
+                f"Your dashboard access has been upgraded to "
+                f"`{result.get('tier')}`. A complimentary paid Macro Manv "
+                f"newsletter subscription will arrive in your inbox within "
+                f"24 hours."
+            )
+        else:
+            st.warning(
+                f"⏳ Payment received but processing is pending: "
+                f"{result.get('message','')}  "
+                "If this persists, email manveer@macromanv.com — we keep "
+                "Stripe receipts and can reconcile manually."
+            )
+
+        # Clear the query param so a page refresh doesn't re-trigger
+        try:
+            new_params = {k: v for k, v in params.items() if k != "stripe_session"}
+            st.query_params.clear()
+            for k, v in new_params.items():
+                st.query_params[k] = v
+        except Exception:
+            pass
+    except Exception:
+        # Stripe processing should never crash the page render
+        pass
+
 
 def get_master_df(force_network: bool = False) -> pd.DataFrame:
     """
