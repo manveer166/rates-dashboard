@@ -74,10 +74,11 @@ st.divider()
 
 
 # ── Tabs ────────────────────────────────────────────────────────────────
-tab_pending, tab_approved, tab_activity, tab_export = st.tabs([
+tab_pending, tab_approved, tab_activity, tab_broadcast, tab_export = st.tabs([
     f"⏳ Pending ({n_pending})",
     f"✅ Approved ({n_approved})",
     "📈 Activity",
+    f"📣 Broadcast ({n_approved})",
     "📤 Export",
 ])
 
@@ -270,7 +271,213 @@ with tab_activity:
             st.dataframe(page_counts, use_container_width=True)
 
 
-# ── Tab 4: Export ───────────────────────────────────────────────────────
+# ── Tab 4: Broadcast (personalised mail merge) ─────────────────────────
+with tab_broadcast:
+    from dashboard.components.beta_broadcast import (
+        TEMPLATES, personalize_for_all, broadcast_csv,
+        send_via_smtp, log_broadcast, variables_used, render_template,
+        _build_context,
+    )
+    import os as _os
+
+    if not approved:
+        st.info(
+            "No approved testers yet. Once you've approved some applicants "
+            "from the Pending tab, you can broadcast to them here."
+        )
+    else:
+        st.caption(
+            "Personalised mail merge. Use `{{first_name}}`, `{{name}}`, "
+            "`{{organisation}}`, `{{role}}`, `{{n_views}}`, `{{n_pages}}`, "
+            "`{{top_page}}`, `{{last_seen}}` in your template. Each tester "
+            "gets a 1:1 email — no BCC, no group thread."
+        )
+
+        # ── Template picker / editor ─────────────────────────────────
+        tmpl_options = ["(custom)"] + list(TEMPLATES.keys())
+        tmpl_choice = st.selectbox(
+            "Start from a template",
+            options=tmpl_options,
+            format_func=lambda k: (
+                "✏️ Custom (write your own)" if k == "(custom)"
+                else f"📄 {k.replace('_', ' ').title()}"
+            ),
+            key="bcast_template",
+        )
+
+        if tmpl_choice == "(custom)":
+            default_subj = ""
+            default_body = ""
+        else:
+            default_subj = TEMPLATES[tmpl_choice]["subject"]
+            default_body = TEMPLATES[tmpl_choice]["body"]
+
+        subj_template = st.text_input(
+            "Subject (supports {{vars}})",
+            value=default_subj,
+            key="bcast_subject",
+        )
+        body_template = st.text_area(
+            "Body (supports {{vars}})",
+            value=default_body,
+            height=300,
+            key="bcast_body",
+        )
+
+        # ── Recipient picker ─────────────────────────────────────────
+        recipient_emails = st.multiselect(
+            "Send to which approved testers?",
+            options=[r["email"] for r in approved],
+            default=[r["email"] for r in approved],
+            format_func=lambda e: next(
+                (f"{r['name']} <{e}>" for r in approved if r["email"] == e), e
+            ),
+            key="bcast_recipients",
+        )
+
+        selected_testers = [r for r in approved if r["email"] in recipient_emails]
+
+        # Build a per-email usage dict so {{n_views}} etc. fill in
+        usage = user_usage_stats() if not activity_df.empty else pd.DataFrame()
+        usage_by_email = (
+            {row["email"]: row for row in usage.to_dict("records")}
+            if not usage.empty else {}
+        )
+
+        # ── Live preview ─────────────────────────────────────────────
+        if selected_testers and (subj_template or body_template):
+            messages = personalize_for_all(
+                subj_template, body_template,
+                selected_testers, usage_by_email,
+            )
+
+            with st.expander(
+                f"🔍 Preview rendered emails ({len(messages)} total)",
+                expanded=False,
+            ):
+                for m in messages[:5]:
+                    st.markdown(
+                        f"**To:** `{m['email']}`  ·  **Subject:** {m['subject']}"
+                    )
+                    st.code(m["body"], language=None)
+                    st.divider()
+                if len(messages) > 5:
+                    st.caption(f"…and {len(messages) - 5} more "
+                               "(download CSV to see them all)")
+
+            vars_seen = variables_used(subj_template + " " + body_template)
+            if vars_seen:
+                st.caption(f"Variables used in template: "
+                           f"`{', '.join('{{' + v + '}}' for v in vars_seen)}`")
+
+            st.write("")
+
+            # ── Three send options ─────────────────────────────────
+            sc1, sc2, sc3 = st.columns(3)
+
+            with sc1:
+                st.download_button(
+                    "⬇️ Download CSV",
+                    data=broadcast_csv(messages),
+                    file_name=f"beta_broadcast_{datetime.utcnow().date()}.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                    help=("CSV with one row per tester. Use with Gmail "
+                          "Multi-Send, Mailmerge.app, or any external "
+                          "mail-merge tool."),
+                )
+
+            smtp_user = (_os.getenv("GMAIL_USER", "")
+                         or st.secrets.get("GMAIL_USER", "")
+                         if hasattr(st, "secrets") else "")
+            smtp_pw   = (_os.getenv("GMAIL_APP_PASSWORD", "")
+                         or st.secrets.get("GMAIL_APP_PASSWORD", "")
+                         if hasattr(st, "secrets") else "")
+            smtp_configured = bool(smtp_user and smtp_pw)
+
+            with sc2:
+                if st.button(
+                    "📨 Dry-run (log without sending)",
+                    use_container_width=True,
+                    help=("Logs the broadcast to "
+                          "data/beta_broadcasts.jsonl but doesn't send "
+                          "anything. Useful for confirming you're about "
+                          "to email the right people."),
+                ):
+                    log_broadcast(
+                        subj_template, body_template,
+                        recipient_count=len(messages),
+                        sent_results=[{"email": m["email"], "ok": True,
+                                       "error": "dry-run"} for m in messages],
+                        note="dry-run from /Beta_Admin",
+                    )
+                    st.success(
+                        f"✅ Logged dry-run for {len(messages)} recipient(s). "
+                        "Nothing sent."
+                    )
+
+            with sc3:
+                send_disabled = not smtp_configured
+                btn_label = ("🚀 SEND NOW via Gmail SMTP" if smtp_configured
+                             else "🚀 SEND (SMTP not configured)")
+                if st.button(
+                    btn_label,
+                    use_container_width=True,
+                    type="primary",
+                    disabled=send_disabled,
+                    help=("Sends each personalised email via Gmail SMTP. "
+                          "Requires GMAIL_USER + GMAIL_APP_PASSWORD in "
+                          "secrets." if smtp_configured
+                          else "Set GMAIL_USER + GMAIL_APP_PASSWORD in "
+                               "Streamlit Cloud secrets to enable."),
+                ):
+                    confirm_key = "_bcast_confirm"
+                    if not st.session_state.get(confirm_key):
+                        st.session_state[confirm_key] = True
+                        st.warning(
+                            f"⚠️ About to send **{len(messages)}** "
+                            f"personalised emails via SMTP. Click the "
+                            "button again to confirm."
+                        )
+                    else:
+                        st.session_state[confirm_key] = False
+                        with st.spinner(f"Sending {len(messages)} emails…"):
+                            results = send_via_smtp(
+                                messages, smtp_user, smtp_pw,
+                                from_name="Manveer Sahota",
+                            )
+                        n_ok   = sum(1 for r in results if r["ok"])
+                        n_fail = len(results) - n_ok
+                        log_broadcast(
+                            subj_template, body_template,
+                            recipient_count=len(messages),
+                            sent_results=results,
+                            note="SMTP send from /Beta_Admin",
+                        )
+                        if n_fail == 0:
+                            st.success(f"✅ Sent {n_ok} email(s) successfully.")
+                        else:
+                            st.warning(
+                                f"⚠️ Sent {n_ok} ok, {n_fail} failed. "
+                                "Failures:"
+                            )
+                            for r in results:
+                                if not r["ok"]:
+                                    st.text(f"  {r['email']}: {r['error']}")
+
+            if not smtp_configured:
+                st.info(
+                    "💡 **SMTP send is disabled** because `GMAIL_USER` and "
+                    "`GMAIL_APP_PASSWORD` aren't in secrets. Use the CSV "
+                    "download with Gmail Multi-Send for now — works in any "
+                    "Gmail account without code. To enable one-click send: "
+                    "set the two secrets on Streamlit Cloud "
+                    "(see `legal/STRIPE_SETUP.md` for the secrets workflow)."
+                )
+
+
+# ── Tab 5: Export ───────────────────────────────────────────────────────
+# (Note: Broadcast tab inserted as Tab 4 above, Export is now Tab 5)
 with tab_export:
     st.subheader("Excel export")
     st.caption(
