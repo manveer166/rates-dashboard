@@ -29,6 +29,11 @@ from dashboard.components.beta_users import (
     mark_credentials_sent, reissue_password,
     load_activity_df, user_usage_stats, export_to_excel,
 )
+from dashboard.components.beta_credentials import (
+    slot_status, free_slots, assign_slot_to_tester,
+    mark_credentials_sent as mark_slot_creds_sent,
+    unassign_slot, build_welcome_email_text,
+)
 
 st.set_page_config(page_title="Beta Admin", page_icon="🪶", layout="wide")
 password_gate()
@@ -73,10 +78,18 @@ k5.metric("Total applications", len(all_signups))
 st.divider()
 
 
+# Compute free-slot count for the Slots tab header
+try:
+    _free_count = len(free_slots())
+except Exception:
+    _free_count = 0
+
 # ── Tabs ────────────────────────────────────────────────────────────────
-tab_pending, tab_approved, tab_activity, tab_broadcast, tab_export = st.tabs([
+(tab_pending, tab_approved, tab_slots, tab_activity, tab_broadcast,
+ tab_export) = st.tabs([
     f"⏳ Pending ({n_pending})",
     f"✅ Approved ({n_approved})",
+    f"📋 Slots ({_free_count} free)",
     "📈 Activity",
     f"📣 Broadcast ({n_approved})",
     "📤 Export",
@@ -228,7 +241,142 @@ with tab_approved:
                         st.rerun()
 
 
-# ── Tab 3: Activity log ────────────────────────────────────────────────
+# ── Tab 3: Slots — quick-add tester ────────────────────────────────────
+with tab_slots:
+    st.subheader("Pre-allocated credential slots")
+    st.caption(
+        "20 slots were generated in advance and pre-approved in the auth "
+        "store. When a signed NDA comes back from a tester, assign them "
+        "the next free slot here — the welcome-email card below is "
+        "ready to paste into Gmail."
+    )
+
+    _slots = slot_status()
+    if _slots.empty:
+        st.error(
+            "No credential slots exist yet. Run from a terminal:\n\n"
+            "```\npython scripts/generate_beta_credentials.py 20\n```"
+        )
+    else:
+        # ── Status overview ──────────────────────────────────────────────
+        _free = (_slots["status"] == "🟢 free").sum()
+        _assigned = (_slots["status"] == "✅ assigned").sum()
+        _sent = (_slots["credentials_sent_at"].astype(str).str.strip() != "").sum()
+
+        c1, c2, c3 = st.columns(3)
+        c1.metric("🟢 Free", _free)
+        c2.metric("✅ Assigned", _assigned)
+        c3.metric("📨 Credentials sent", _sent)
+        st.write("")
+
+        # ── Quick-add form ───────────────────────────────────────────────
+        if _free > 0:
+            with st.expander("➕ Assign next slot to a tester", expanded=True):
+                with st.form("assign_slot_form", clear_on_submit=True):
+                    fc1, fc2, fc3 = st.columns([2, 2, 2])
+                    _real_name  = fc1.text_input(
+                        "Full name *", placeholder="Alice Smith")
+                    _real_email = fc2.text_input(
+                        "Real email *", placeholder="alice@goldman.com",
+                        help="Tester's real reply-to email — for your CSV only, never goes to git or to Streamlit Cloud.")
+                    _org        = fc3.text_input(
+                        "Organisation", placeholder="Goldman Sachs")
+                    _submit = st.form_submit_button(
+                        "Assign next free slot →",
+                        type="primary",
+                        use_container_width=True,
+                    )
+
+                if _submit:
+                    try:
+                        _row = assign_slot_to_tester(_real_name, _real_email, _org)
+                        st.session_state["_last_assigned_slot"] = _row
+                        st.success(
+                            f"✅ Assigned **{_row['slot']}** "
+                            f"({_row['login_email']}) to "
+                            f"**{_row['assigned_to_real_name']}**."
+                        )
+                        st.rerun()
+                    except ValueError as e:
+                        st.error(f"❌ {e}")
+        else:
+            st.warning(
+                "All 20 slots are assigned. Generate more from terminal:\n\n"
+                "```\npython scripts/generate_beta_credentials.py 10\n```"
+            )
+
+        # ── Welcome-email card for last-assigned slot ───────────────────
+        _last = st.session_state.get("_last_assigned_slot")
+        if _last:
+            st.divider()
+            st.subheader("📨 Welcome email — copy + paste into Gmail")
+
+            _subject, _body = build_welcome_email_text(
+                real_name    = _last["assigned_to_real_name"],
+                login_email  = _last["login_email"],
+                password     = _last["password"],
+                organisation = _last.get("organisation", ""),
+            )
+
+            _to_field = _last["assigned_to_real_email"]
+            cc1, cc2 = st.columns([1, 4])
+            cc1.metric("To", _to_field)
+            cc2.metric("Subject", _subject)
+
+            st.text_area(
+                "Email body — copy this directly",
+                value=_body,
+                height=420,
+                key="welcome_body",
+            )
+
+            mc1, mc2 = st.columns(2)
+            if mc1.button("📨 Mark credentials sent",
+                          use_container_width=True,
+                          type="primary"):
+                mark_slot_creds_sent(_last["slot"])
+                st.session_state.pop("_last_assigned_slot", None)
+                st.success(f"Marked {_last['slot']} as sent.")
+                st.rerun()
+            if mc2.button("✕ Clear (don't mark sent)",
+                          use_container_width=True):
+                st.session_state.pop("_last_assigned_slot", None)
+                st.rerun()
+
+        # ── All slots table ─────────────────────────────────────────────
+        st.divider()
+        st.subheader("All slots")
+        _display_cols = [
+            "slot", "status", "assigned_to_real_name",
+            "assigned_to_real_email", "organisation",
+            "login_email", "assigned_at", "credentials_sent_at",
+        ]
+        _display = _slots[[c for c in _display_cols if c in _slots.columns]]
+        st.dataframe(_display, use_container_width=True, hide_index=True)
+        st.caption(
+            "Passwords are deliberately not shown in this table. Use the "
+            "Quick-add form above to surface one slot's password at a time."
+        )
+
+        # ── Unassign (rare) ─────────────────────────────────────────────
+        with st.expander("⚠️ Unassign a slot (rare)"):
+            _assigned_slots = _slots[_slots["status"] == "✅ assigned"]["slot"].tolist()
+            if not _assigned_slots:
+                st.caption("No slots to unassign.")
+            else:
+                _ua = st.selectbox(
+                    "Slot to unassign",
+                    options=[""] + _assigned_slots,
+                    format_func=lambda s: "Pick a slot..." if not s else s,
+                )
+                if _ua and st.button(
+                    f"Unassign {_ua}", type="secondary"):
+                    unassign_slot(_ua)
+                    st.warning(f"Unassigned {_ua}.")
+                    st.rerun()
+
+
+# ── Tab 4: Activity log ────────────────────────────────────────────────
 with tab_activity:
     if activity_df.empty:
         st.info("No activity events recorded yet.")
