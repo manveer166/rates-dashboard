@@ -406,19 +406,20 @@ def main():
     )
 
     # ── Top-of-page CTA strip — gives a new visitor a clear next move ─────
+    # st.page_link navigates in-place; st.link_button always pops a new tab.
     cta1, cta2, cta3, _ = st.columns([1.1, 1.1, 1.1, 4])
     with cta1:
-        st.link_button("📰 Trade of the Week",
-                       "/Trade_of_the_Week",
-                       use_container_width=True)
+        st.page_link("pages/19_Trade_of_the_Week.py",
+                     label="📰 Trade of the Week",
+                     use_container_width=True)
     with cta2:
-        st.link_button("🌅 Morning Brief",
-                       "/Morning",
-                       use_container_width=True)
+        st.page_link("pages/41_Morning.py",
+                     label="🌅 Morning Brief",
+                     use_container_width=True)
     with cta3:
-        st.link_button("💎 Pricing",
-                       "/Pricing",
-                       use_container_width=True)
+        st.page_link("pages/45_Pricing.py",
+                     label="💎 Pricing",
+                     use_container_width=True)
 
     # ── Stale-cache banner (admin sees refresh button) ─────────────────────
     from dashboard.state import render_cache_freshness_banner

@@ -30,7 +30,7 @@ from dashboard.state import init_session_state
 # the proprietary parameter values + integration.
 st.set_page_config(page_title="Methodology", page_icon="📐", layout="wide")
 init_session_state()
-render_sidebar_controls()
+render_sidebar_controls(public=True)   # skip the password gate
 render_page_header(current="Methodology")
 
 st.title("📐 Methodology")

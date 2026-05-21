@@ -11,9 +11,16 @@ import streamlit as st
 from dashboard.state import init_session_state, refresh_data, cache_age_str, password_gate, is_admin
 
 
-def render_sidebar_controls() -> None:
-    """Render the global sidebar controls and update session state."""
-    password_gate()
+def render_sidebar_controls(public: bool = False) -> None:
+    """Render the global sidebar controls and update session state.
+
+    Set public=True for pages that should NOT trigger the password gate
+    (Methodology, Glossary, etc.). The sidebar still renders so admin
+    users get their date pickers; anonymous visitors just see the same
+    sidebar without being forced to log in.
+    """
+    if not public:
+        password_gate()
     init_session_state()
 
     st.sidebar.title("⚙️ Controls")
