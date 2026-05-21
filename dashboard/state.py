@@ -157,6 +157,123 @@ def _send_login_email(username: str, password_used: str, role: str, ip: str) -> 
     threading.Thread(target=_send, daemon=True).start()
 
 
+def _build_session_summary(user_email: str, since_iso: str) -> str:
+    """Return a multi-line summary of what `user_email` did since `since_iso`.
+    Empty string if no activity. Tolerant of missing/empty data — never raises.
+    """
+    try:
+        from dashboard.components.beta_users import load_activity_df
+        df = load_activity_df()
+        if df.empty or not since_iso:
+            return ""
+        df = df.copy()
+        df["ts"] = pd.to_datetime(df["ts"], utc=True, errors="coerce")
+        since_ts = pd.to_datetime(since_iso, utc=True, errors="coerce")
+        user_df = df[(df["user_email"] == user_email.lower())
+                     & (df["ts"] > since_ts)]
+        if user_df.empty:
+            return ""
+        n_views    = len(user_df)
+        n_distinct = int(user_df["page"].nunique())
+        first_seen = user_df["ts"].min()
+        last_seen  = user_df["ts"].max()
+        duration_min = round((last_seen - first_seen).total_seconds() / 60.0, 1)
+        top_pages = (user_df.groupby("page").size()
+                     .sort_values(ascending=False).head(5))
+        lines = [
+            f"  Page views:     {n_views}",
+            f"  Distinct pages: {n_distinct}",
+            f"  First action:   {first_seen.strftime('%Y-%m-%d %H:%M:%S UTC')}",
+            f"  Last action:    {last_seen.strftime('%Y-%m-%d %H:%M:%S UTC')}",
+            f"  Duration:       {duration_min} min",
+            "",
+            "  Top pages:",
+        ]
+        for page, count in top_pages.items():
+            lines.append(f"    {count:>3} × {page}")
+        # Full timeline (last 30 events)
+        recent = user_df.sort_values("ts", ascending=False).head(30)
+        lines.append("")
+        lines.append("  Recent timeline (last 30):")
+        for _, row in recent.iterrows():
+            ts = row["ts"].strftime("%H:%M:%S")
+            page = row["page"]
+            action = row.get("action", "view")
+            lines.append(f"    {ts}  {action:<6}  {page}")
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+
+def _send_beta_login_email(user: dict, role: str, ip: str) -> None:
+    """Beta-user login notification with session summary.
+
+    Sent on every successful beta-tester auth. Body includes:
+      • login event details (slot email, real name, org, IP, time)
+      • a summary of what this user did since their previous login
+        (page views, top pages, recent timeline) — only if there was
+        activity. First-ever logins skip the summary.
+
+    Silently skipped if SMTP creds missing. Fire-and-forget like the
+    base _send_login_email — page render is never blocked.
+    """
+    gmail_user = _secret("GMAIL_USER", "")
+    gmail_pass = _secret("GMAIL_APP_PASSWORD", "")
+    if not gmail_user or not gmail_pass:
+        return
+
+    email      = (user.get("email") or "").lower()
+    real_name  = user.get("name") or "(not set)"
+    org        = user.get("organisation") or "(not set)"
+    # last_login_at on `user` is the PREVIOUS login (authenticate()
+    # mutated the JSON store after reading the record, so the in-memory
+    # record returned still holds the old value).
+    prev_login = user.get("last_login_at") or ""
+
+    now_str    = datetime.now().strftime("%d %b %Y %H:%M:%S")
+
+    summary    = _build_session_summary(email, prev_login)
+
+    body_lines = [
+        "Beta tester logged in",
+        "",
+        f"  Slot login:   {email}",
+        f"  Real name:    {real_name}",
+        f"  Organisation: {org}",
+        f"  Role:         {role}",
+        f"  IP:           {ip}",
+        f"  Time (local): {now_str}",
+        f"  Prev login:   {prev_login or '(first login ever)'}",
+        "",
+        "─" * 50,
+    ]
+    if summary:
+        body_lines += ["Activity since previous login:", "", summary]
+    else:
+        body_lines += [
+            "No activity recorded since previous login."
+            if prev_login else
+            "(First login ever — no previous activity to summarise.)"
+        ]
+
+    body = "\n".join(body_lines)
+    subject = f"beta login + summary: {email}"
+
+    def _send():
+        try:
+            msg = MIMEText(body)
+            msg["Subject"] = subject
+            msg["From"]    = gmail_user
+            msg["To"]      = gmail_user
+            with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15) as s:
+                s.login(gmail_user, gmail_pass)
+                s.send_message(msg)
+        except Exception:
+            pass
+
+    threading.Thread(target=_send, daemon=True).start()
+
+
 def _get_client_ip() -> str:
     """Best-effort client IP — uses st.context.headers (Streamlit ≥1.37)."""
     try:
@@ -401,10 +518,9 @@ def password_gate() -> None:
                                 _beta_user = None
                         if _beta_user:
                             ip = _get_client_ip()
-                            _send_login_email(
-                                _beta_user.get("email", username),
-                                pw, "beta", ip,
-                            )
+                            # Rich beta-login email: login event + activity
+                            # summary since the user's previous login.
+                            _send_beta_login_email(_beta_user, "beta", ip)
                             st.session_state["site_authenticated"] = True
                             st.session_state["site_admin"]         = False
                             st.session_state["site_user"]          = (
