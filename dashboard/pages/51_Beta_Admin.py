@@ -32,7 +32,7 @@ from dashboard.components.beta_users import (
 from dashboard.components.beta_credentials import (
     slot_status, free_slots, assign_slot_to_tester,
     mark_credentials_sent as mark_slot_creds_sent,
-    unassign_slot, build_welcome_email_text,
+    unassign_slot, build_welcome_email_text, col_or,
 )
 
 st.set_page_config(page_title="Beta Admin", page_icon="🪶", layout="wide")
@@ -269,10 +269,55 @@ with tab_slots:
         c3.metric("📨 Credentials sent", _sent)
         st.write("")
 
+        # ── Pending replies banner ───────────────────────────────────────
+        _replied_col = col_or(_slots, "email_replied", "Email Replied")
+        if _replied_col is not None:
+            _pending_mask = (
+                _slots[_replied_col].astype(str).str.upper().isin(["TRUE", "1", "YES", "Y", "✓"])
+                & (_slots["assigned_to_real_email"].astype(str).str.strip() == "")
+            )
+            _n_pending = int(_pending_mask.sum())
+            if _n_pending > 0:
+                _sent_col = col_or(_slots, "email_sent", "Email Sent")
+                _hint = ""
+                if _sent_col:
+                    _names = _slots.loc[_pending_mask, _sent_col].astype(str).tolist()
+                    _hint = " — " + ", ".join(_names[:3])
+                    if len(_names) > 3:
+                        _hint += f" + {len(_names) - 3} more"
+                st.warning(
+                    f"📩 **{_n_pending} replied but not yet assigned**{_hint}. "
+                    "Pick the matching slot from the dropdown below to assign."
+                )
+
         # ── Quick-add form ───────────────────────────────────────────────
         if _free > 0:
-            with st.expander("➕ Assign next slot to a tester", expanded=True):
+            with st.expander("➕ Assign a slot to a tester", expanded=True):
+                # Build the slot picker options. Free slots only.
+                _free_df = _slots[_slots["status"] == "🟢 free"]
+                _sent_col = col_or(_free_df, "email_sent", "Email Sent")
+
+                def _label_slot(s: str) -> str:
+                    if not s:
+                        return "🎯 Auto-pick next free"
+                    if _sent_col:
+                        sent = _free_df.loc[_free_df["slot"] == s, _sent_col]
+                        sent_val = sent.iloc[0] if not sent.empty else ""
+                        if str(sent_val).strip():
+                            return f"{s}  →  {sent_val}"
+                    return s
+
+                _slot_options = [""] + _free_df["slot"].tolist()
+
                 with st.form("assign_slot_form", clear_on_submit=True):
+                    _pick = st.selectbox(
+                        "Slot to assign",
+                        options=_slot_options,
+                        format_func=_label_slot,
+                        help=("Pick the slot whose 'Email Sent' matches the "
+                              "tester who just replied, or leave on Auto-pick "
+                              "to take the next free slot."),
+                    )
                     fc1, fc2, fc3 = st.columns([2, 2, 2])
                     _real_name  = fc1.text_input(
                         "Full name *", placeholder="Alice Smith")
@@ -282,14 +327,19 @@ with tab_slots:
                     _org        = fc3.text_input(
                         "Organisation", placeholder="Goldman Sachs")
                     _submit = st.form_submit_button(
-                        "Assign next free slot →",
+                        "Assign →",
                         type="primary",
                         use_container_width=True,
                     )
 
                 if _submit:
                     try:
-                        _row = assign_slot_to_tester(_real_name, _real_email, _org)
+                        _row = assign_slot_to_tester(
+                            _real_name,
+                            _real_email,
+                            _org,
+                            slot=(_pick or None),
+                        )
                         st.session_state["_last_assigned_slot"] = _row
                         st.success(
                             f"✅ Assigned **{_row['slot']}** "
@@ -346,16 +396,20 @@ with tab_slots:
         # ── All slots table ─────────────────────────────────────────────
         st.divider()
         st.subheader("All slots")
-        _display_cols = [
-            "slot", "status", "assigned_to_real_name",
-            "assigned_to_real_email", "organisation",
-            "login_email", "assigned_at", "credentials_sent_at",
-        ]
-        _display = _slots[[c for c in _display_cols if c in _slots.columns]]
+        # Show every column from the CSV except `password` (no cleartext
+        # passwords in the admin table — those come out only via the
+        # welcome-email card after Assign).
+        _display = _slots.loc[:, [c for c in _slots.columns if c.lower() != "password"]]
+        # Put status first if present
+        if "status" in _display.columns:
+            _cols = ["status"] + [c for c in _display.columns if c != "status"]
+            _display = _display[_cols]
         st.dataframe(_display, use_container_width=True, hide_index=True)
         st.caption(
-            "Passwords are deliberately not shown in this table. Use the "
-            "Quick-add form above to surface one slot's password at a time."
+            "Passwords are deliberately hidden here — they appear in the "
+            "welcome-email card right after you click Assign. Edit `Email "
+            "Sent` / `Email Replied` columns directly in your CSV in Excel "
+            "if you maintain those locally."
         )
 
         # ── Unassign (rare) ─────────────────────────────────────────────

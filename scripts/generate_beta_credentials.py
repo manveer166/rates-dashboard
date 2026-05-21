@@ -108,6 +108,8 @@ def generate(count: int = 20) -> list[dict]:
             "slot":                  slot,
             "login_email":           login_email,
             "password":              pw,
+            "email_sent":            "",   # cover-letter recipient (you fill)
+            "email_replied":         "",   # "TRUE" / "FALSE" tickbox
             "assigned_to_real_name": "",
             "assigned_to_real_email":"",
             "organisation":          "",

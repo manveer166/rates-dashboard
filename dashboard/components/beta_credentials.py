@@ -37,9 +37,25 @@ CREDS_CSV = _ROOT / "data" / "beta_credentials_master.csv"
 
 CREDS_FIELDS = [
     "slot", "login_email", "password",
+    "email_sent", "email_replied",
     "assigned_to_real_name", "assigned_to_real_email", "organisation",
     "assigned_at", "credentials_sent_at",
 ]
+
+
+def col_or(df, *candidates) -> Optional[str]:
+    """Return the first matching column name in df, case-insensitive.
+    Tolerates user-renamed columns: 'Email Sent' / 'email_sent' / 'emailSent'
+    all resolve to the same logical field.
+    """
+    lower_map = {c.lower().strip(): c for c in df.columns}
+    for cand in candidates:
+        if cand in df.columns:
+            return cand
+        hit = lower_map.get(cand.lower().strip())
+        if hit:
+            return hit
+    return None
 
 
 # ── CSV I/O ──────────────────────────────────────────────────────────────
