@@ -94,6 +94,28 @@ def render_sidebar_controls(public: bool = False) -> None:
     if user_label:
         st.sidebar.caption(f"👤 Logged in as **{user_label}**")
     if st.sidebar.button("🚪 Log Out", use_container_width=True):
+        # Capture session info BEFORE wiping state — needed for the
+        # logout email so we can compute session length + summary.
+        from dashboard.state import _send_logout_email
+
+        _user_email   = st.session_state.get("site_user_email", "")
+        _user_display = st.session_state.get("site_user", "") or _user_email
+        _is_admin     = bool(st.session_state.get("site_admin"))
+        _role = (
+            "beta"   if _user_email else
+            "admin"  if _is_admin   else
+            "viewer"
+        )
+        _started_at = st.session_state.get("session_started_at", "")
+
+        _send_logout_email(
+            user_display       = _user_display,
+            user_email         = _user_email,
+            user_role          = _role,
+            session_started_at = _started_at,
+            is_admin_session   = _is_admin,
+        )
+
         # Wipe EVERY session_state key — auth markers, page filters,
         # widget state, scratchpads — so the next user logging in on
         # this same browser tab starts genuinely fresh.

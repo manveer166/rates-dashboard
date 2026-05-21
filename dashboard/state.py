@@ -301,8 +301,8 @@ def _send_beta_login_email(user: dict, role: str, ip: str) -> None:
 
 def _clear_user_session_state() -> None:
     """Wipe every session_state key except the auth markers we're about
-    to set. Call this on every successful login so user X doesn't
-    inherit user Y's filters, page selections, scratchpad state, etc.
+    to set, then stamp a fresh `session_started_at` for the logout
+    email's session-length calculation.
 
     Streamlit's session_state lives in the BROWSER tab, not in the user
     identity. Without this, a logout-then-login-as-someone-else in the
@@ -312,8 +312,6 @@ def _clear_user_session_state() -> None:
         # Auth markers being set right after this call:
         "site_authenticated", "site_admin", "site_user",
         "site_user_email", "site_user_id", "page_lock",
-        # Login form widget state — let Streamlit clean these up itself
-        # by leaving them; the form clears on rerun anyway.
     }
     for k in list(st.session_state.keys()):
         if k not in keep:
@@ -321,6 +319,10 @@ def _clear_user_session_state() -> None:
                 del st.session_state[k]
             except Exception:
                 pass
+    # Mark when this new session began — read on logout
+    st.session_state["session_started_at"] = (
+        datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    )
 
 
 def _redirect_to_home() -> None:
@@ -330,6 +332,117 @@ def _redirect_to_home() -> None:
         st.switch_page("Home.py")
     except Exception:
         st.rerun()
+
+
+def _now_iso_utc() -> str:
+    return datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _send_logout_email(
+    user_display:        str,
+    user_email:          str,
+    user_role:           str,
+    session_started_at:  str,
+    is_admin_session:    bool = False,
+) -> None:
+    """Fire-and-forget logout notification with a session summary.
+    Symmetric to _send_beta_login_email — same header block + an
+    activity recap that runs from login → logout.
+
+    user_email is the slot login (e.g. beta06@macromanv.com) for beta
+    testers; empty for admin/viewer logouts.
+    """
+    gmail_user = _secret("GMAIL_USER", "")
+    gmail_pass = _secret("GMAIL_APP_PASSWORD", "")
+    if not gmail_user or not gmail_pass:
+        return
+    notify_to = _secret("BETA_NOTIFY_TO", gmail_user) or gmail_user
+
+    now_local = datetime.now().strftime("%d %b %Y %H:%M:%S")
+
+    # Session length (login → now)
+    duration_str = "(unknown)"
+    if session_started_at:
+        try:
+            start = pd.to_datetime(session_started_at, utc=True)
+            secs  = (pd.Timestamp.utcnow() - start).total_seconds()
+            if secs < 60:
+                duration_str = f"{int(secs)} sec"
+            elif secs < 3600:
+                duration_str = f"{secs/60:.1f} min"
+            else:
+                duration_str = f"{secs/3600:.2f} h"
+        except Exception:
+            pass
+
+    # Pull real-name / real-email / org from the committed JSON, if any
+    real_email = "(not assigned)"
+    real_name  = user_display or "(unknown)"
+    org        = "(not set)"
+    if user_email:
+        try:
+            from dashboard.components.beta_users import get_signup_by_email
+            r = get_signup_by_email(user_email)
+            if r:
+                real_email = r.get("real_email")   or real_email
+                real_name  = r.get("name")         or real_name
+                org        = r.get("organisation") or org
+        except Exception:
+            pass
+
+    # Session summary — pages they hit between login and now
+    summary = ""
+    if user_email and session_started_at:
+        summary = _build_session_summary(user_email, session_started_at)
+
+    # Subject
+    who = user_email or user_display or "(unknown)"
+    if is_admin_session:
+        subject = f"admin logout: {who} ({duration_str} session)"
+    else:
+        subject = f"beta logout: {who} ({duration_str} session)"
+
+    body_lines = [
+        "Session ended — user logged out",
+        "",
+        f"  Slot login:     {user_email or '(admin)'}",
+        f"  Real email:     {real_email}",
+        f"  Real name:      {real_name}",
+        f"  Organisation:   {org}",
+        f"  Role:           {user_role}",
+        f"  Time (local):   {now_local}",
+        f"  Session start:  {session_started_at or '(unknown)'}",
+        f"  Session length: {duration_str}",
+        "",
+        "─" * 50,
+    ]
+    if summary:
+        body_lines += ["Session activity:", "", summary]
+    elif user_email:
+        body_lines += [
+            "No page views recorded during this session.",
+            "(Tester logged in and out without navigating.)",
+        ]
+    else:
+        body_lines += [
+            "(Admin session — page-view tracking is disabled for admins.)"
+        ]
+
+    body = "\n".join(body_lines)
+
+    def _send():
+        try:
+            msg = MIMEText(body)
+            msg["Subject"] = subject
+            msg["From"]    = gmail_user
+            msg["To"]      = notify_to
+            with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15) as s:
+                s.login(gmail_user, gmail_pass)
+                s.send_message(msg)
+        except Exception:
+            pass
+
+    threading.Thread(target=_send, daemon=True).start()
 
 
 def _get_client_ip() -> str:
