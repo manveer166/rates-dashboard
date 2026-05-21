@@ -224,14 +224,35 @@ def authenticate(email: str, password: str) -> Optional[dict]:
     return r
 
 
-# ── Activity logging (append-only JSONL) ────────────────────────────────
+# ── Activity logging ────────────────────────────────────────────────────
+# Persistence strategy: Supabase if configured, JSONL file otherwise.
+# Supabase writes survive Streamlit Cloud container redeploys; JSONL does
+# not. We always also write to JSONL as a local-dev mirror.
+
+def _supabase_insert_activity(rec: dict) -> bool:
+    """Try inserting one event into Supabase. Returns True iff written."""
+    try:
+        from dashboard.components.supabase_client import get_client
+        sb = get_client()
+        if not sb:
+            return False
+        # Strip the local-style 'ts' field — Supabase fills it via DEFAULT NOW()
+        payload = {k: v for k, v in rec.items() if k != "ts"}
+        sb.table("beta_activity").insert(payload).execute()
+        return True
+    except Exception:
+        return False
+
+
 def log_activity(user_email: str, page: str,
                   action: str = "view",
                   extra: Optional[dict] = None) -> None:
-    """Append an event to data/beta_activity.jsonl.
+    """Record one activity event.
 
-    Cheap: a single file.write of one JSON line. Safe under concurrent
-    Streamlit reruns because we open in append mode.
+    Writes to Supabase if configured (persistent), and always also to the
+    local JSONL mirror (useful for local dev + a safety net if the DB
+    write fails). Tracking must never block or break a page render —
+    every error path is swallowed.
     """
     if not user_email:
         return
@@ -243,17 +264,46 @@ def log_activity(user_email: str, page: str,
     }
     if extra:
         rec["extra"] = extra
+
+    # Best-effort Supabase write
+    _supabase_insert_activity(rec)
+
+    # Always also write to local JSONL — cheap, lets local dev show
+    # activity without spinning up Supabase, and survives the rare
+    # Supabase outage.
     try:
         ACTIVITY_PATH.parent.mkdir(parents=True, exist_ok=True)
         with ACTIVITY_PATH.open("a", encoding="utf-8") as f:
             f.write(json.dumps(rec, default=str) + "\n")
     except Exception:
-        # Tracking must never break the page render.
         pass
 
 
-def load_activity_df() -> pd.DataFrame:
-    """All activity events as a DataFrame (date-sorted desc)."""
+def _load_activity_from_supabase(limit: int = 50000) -> Optional[pd.DataFrame]:
+    """Pull recent activity rows from Supabase. Returns None on failure."""
+    try:
+        from dashboard.components.supabase_client import get_client
+        sb = get_client()
+        if not sb:
+            return None
+        resp = (
+            sb.table("beta_activity")
+              .select("*")
+              .order("ts", desc=True)
+              .limit(limit)
+              .execute()
+        )
+        rows = resp.data or []
+        if not rows:
+            return pd.DataFrame(columns=["ts", "user_email", "page", "action"])
+        df = pd.DataFrame(rows)
+        df["ts"] = pd.to_datetime(df["ts"], errors="coerce", utc=True)
+        return df.sort_values("ts", ascending=False).reset_index(drop=True)
+    except Exception:
+        return None
+
+
+def _load_activity_from_jsonl() -> pd.DataFrame:
     if not ACTIVITY_PATH.exists():
         return pd.DataFrame(columns=["ts", "user_email", "page", "action"])
     rows = []
@@ -271,6 +321,18 @@ def load_activity_df() -> pd.DataFrame:
     df = pd.DataFrame(rows)
     df["ts"] = pd.to_datetime(df["ts"], errors="coerce", utc=True)
     return df.sort_values("ts", ascending=False).reset_index(drop=True)
+
+
+def load_activity_df() -> pd.DataFrame:
+    """All activity events as a DataFrame (date-sorted desc).
+
+    Prefers Supabase (persistent across redeploys). Falls back to local
+    JSONL if Supabase is unreachable or unconfigured.
+    """
+    sb_df = _load_activity_from_supabase()
+    if sb_df is not None:
+        return sb_df
+    return _load_activity_from_jsonl()
 
 
 # ── Per-user usage stats (for the admin dashboard) ──────────────────────

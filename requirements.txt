@@ -113,6 +113,7 @@ starlette==0.52.1
 statsmodels==0.14.6
 streamlit==1.57.0
 stripe==15.1.0
+supabase==2.30.0
 tabulate==0.10.0
 tenacity==9.1.4
 threadpoolctl==3.6.0
