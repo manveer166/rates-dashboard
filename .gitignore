@@ -22,6 +22,11 @@ data/alerts_config.json
 data/alerts_log.csv
 data/subscribers.csv
 
+# Beta tester — secrets never to commit
+data/beta_credentials_master.csv
+data/beta_activity.jsonl
+data/beta_broadcasts.jsonl
+
 # IDE
 .vscode/
 .idea/
@@ -39,5 +44,7 @@ Thumbs.db
 # Credentials
 *.json
 !package.json
+!data/beta_signups.json
 credentials/
 service-account*.json
+legal/
