@@ -78,6 +78,83 @@ k5.metric("Total applications", len(all_signups))
 st.divider()
 
 
+# ── SMTP / login-email diagnostic ──────────────────────────────────────
+with st.expander("🧪 Test login-email plumbing", expanded=False):
+    import os as _os
+    import smtplib as _smtplib
+    from email.message import EmailMessage as _EmailMessage
+
+    def _sec(k):
+        try:
+            return st.secrets.get(k, "")
+        except Exception:
+            return _os.environ.get(k, "")
+
+    _smtp_user = _sec("GMAIL_USER")
+    _smtp_pw   = _sec("GMAIL_APP_PASSWORD")
+
+    dc1, dc2 = st.columns(2)
+    dc1.metric("GMAIL_USER",
+               "✅ set" if _smtp_user else "❌ missing",
+               delta=(_smtp_user if _smtp_user else None))
+    dc2.metric("GMAIL_APP_PASSWORD",
+               "✅ set" if _smtp_pw else "❌ missing",
+               delta=(f"{len(_smtp_pw)} chars" if _smtp_pw else None))
+
+    if _smtp_pw and " " in _smtp_pw:
+        st.warning(
+            "⚠️ Your `GMAIL_APP_PASSWORD` contains spaces. Google shows "
+            "the app password as `xxxx xxxx xxxx xxxx` but you must "
+            "strip the spaces when pasting into secrets — should be 16 "
+            "chars exactly, no spaces."
+        )
+
+    if _smtp_user and _smtp_pw:
+        if st.button("📨 Send a test email NOW", type="primary"):
+            try:
+                with st.spinner("Connecting to smtp.gmail.com..."):
+                    msg = _EmailMessage()
+                    msg["From"]    = _smtp_user
+                    msg["To"]      = _smtp_user
+                    msg["Subject"] = "TEST: Macro Manv login-email plumbing"
+                    msg.set_content(
+                        f"This is a synchronous test from /Beta_Admin.\n\n"
+                        f"If you're reading this in your inbox, the login-"
+                        f"email plumbing is working — every successful "
+                        f"login from now on will land here.\n\n"
+                        f"Sent: {datetime.utcnow().isoformat()}Z"
+                    )
+                    with _smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15) as srv:
+                        srv.login(_smtp_user, _smtp_pw)
+                        srv.send_message(msg)
+                st.success(
+                    f"✅ Sent test email to **{_smtp_user}**. Check your "
+                    "inbox (and spam / Promotions / Updates tabs). If it's "
+                    "there, real logins will arrive the same way."
+                )
+            except _smtplib.SMTPAuthenticationError as e:
+                st.error(
+                    f"❌ Gmail rejected the login.\n\n```\n{e}\n```\n\n"
+                    "Most likely: your App Password is wrong, has spaces "
+                    "in it, or 2-Step Verification isn't on for the "
+                    f"account `{_smtp_user}`. Regenerate at "
+                    "https://myaccount.google.com/apppasswords"
+                )
+            except Exception as e:
+                st.error(
+                    f"❌ Send failed: `{type(e).__name__}: {e}`\n\n"
+                    "Check the GMAIL_USER value (must be your full "
+                    "Gmail address) and that the account allows SMTP."
+                )
+    else:
+        st.info(
+            "Add `GMAIL_USER` and `GMAIL_APP_PASSWORD` to Streamlit Cloud "
+            "secrets first. See [myaccount.google.com/apppasswords]"
+            "(https://myaccount.google.com/apppasswords) to generate the "
+            "app password (need 2-Step Verification on first)."
+        )
+
+
 # Compute free-slot count for the Slots tab header
 try:
     _free_count = len(free_slots())
