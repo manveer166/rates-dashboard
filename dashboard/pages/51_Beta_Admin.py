@@ -478,7 +478,7 @@ with tab_broadcast:
     from dashboard.components.beta_broadcast import (
         TEMPLATES, personalize_for_all, broadcast_csv,
         send_via_smtp, log_broadcast, variables_used, render_template,
-        _build_context,
+        find_placeholders, _build_context,
     )
     import os as _os
 
@@ -572,6 +572,24 @@ with tab_broadcast:
                 st.caption(f"Variables used in template: "
                            f"`{', '.join('{{' + v + '}}' for v in vars_seen)}`")
 
+            # ── Placeholder safety check ────────────────────────────
+            # Scan EVERY rendered message — a tester-specific render may
+            # still contain a [FILL IN] that the user forgot to replace.
+            _all_placeholders: set[str] = set()
+            for _m in messages:
+                _all_placeholders.update(find_placeholders(_m["subject"]))
+                _all_placeholders.update(find_placeholders(_m["body"]))
+
+            _has_placeholders = bool(_all_placeholders)
+            if _has_placeholders:
+                _shown = ", ".join(f"`{p}`" for p in sorted(_all_placeholders))
+                st.error(
+                    "✋ **Template still has unfilled placeholders — Send and "
+                    f"Dry-run are blocked.** Found: {_shown}. Replace these "
+                    "with real content (or remove the bracketed text) and "
+                    "the buttons will re-enable."
+                )
+
             st.write("")
 
             # ── Three send options ─────────────────────────────────
@@ -584,9 +602,12 @@ with tab_broadcast:
                     file_name=f"beta_broadcast_{datetime.utcnow().date()}.csv",
                     mime="text/csv",
                     use_container_width=True,
+                    disabled=_has_placeholders,
                     help=("CSV with one row per tester. Use with Gmail "
                           "Multi-Send, Mailmerge.app, or any external "
-                          "mail-merge tool."),
+                          "mail-merge tool."
+                          if not _has_placeholders
+                          else "Blocked: template has unfilled placeholders."),
                 )
 
             smtp_user = (_os.getenv("GMAIL_USER", "")
@@ -601,10 +622,13 @@ with tab_broadcast:
                 if st.button(
                     "📨 Dry-run (log without sending)",
                     use_container_width=True,
+                    disabled=_has_placeholders,
                     help=("Logs the broadcast to "
                           "data/beta_broadcasts.jsonl but doesn't send "
                           "anything. Useful for confirming you're about "
-                          "to email the right people."),
+                          "to email the right people."
+                          if not _has_placeholders
+                          else "Blocked: template has unfilled placeholders."),
                 ):
                     log_broadcast(
                         subj_template, body_template,
@@ -619,19 +643,25 @@ with tab_broadcast:
                     )
 
             with sc3:
-                send_disabled = not smtp_configured
-                btn_label = ("🚀 SEND NOW via Gmail SMTP" if smtp_configured
-                             else "🚀 SEND (SMTP not configured)")
+                send_disabled = (not smtp_configured) or _has_placeholders
+                if _has_placeholders:
+                    btn_label = "🚀 SEND (placeholders unfilled)"
+                    _send_help = "Blocked: template has unfilled placeholders."
+                elif not smtp_configured:
+                    btn_label = "🚀 SEND (SMTP not configured)"
+                    _send_help = ("Set GMAIL_USER + GMAIL_APP_PASSWORD in "
+                                  "Streamlit Cloud secrets to enable.")
+                else:
+                    btn_label = "🚀 SEND NOW via Gmail SMTP"
+                    _send_help = ("Sends each personalised email via Gmail "
+                                  "SMTP. Requires GMAIL_USER + "
+                                  "GMAIL_APP_PASSWORD in secrets.")
                 if st.button(
                     btn_label,
                     use_container_width=True,
                     type="primary",
                     disabled=send_disabled,
-                    help=("Sends each personalised email via Gmail SMTP. "
-                          "Requires GMAIL_USER + GMAIL_APP_PASSWORD in "
-                          "secrets." if smtp_configured
-                          else "Set GMAIL_USER + GMAIL_APP_PASSWORD in "
-                               "Streamlit Cloud secrets to enable."),
+                    help=_send_help,
                 ):
                     confirm_key = "_bcast_confirm"
                     if not st.session_state.get(confirm_key):

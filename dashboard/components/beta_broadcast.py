@@ -111,6 +111,23 @@ def variables_used(template: str) -> list[str]:
     return sorted(set(_VAR_RE.findall(template or "")))
 
 
+# ── Unfilled placeholder detection ──────────────────────────────────────
+# Match common placeholder patterns used by humans drafting templates:
+#   [FILL IN]   [PASTE_CALENDLY_URL]   [YOUR EMAIL]   [DATE]
+# Heuristic: anything in square brackets that's all-caps (with optional
+# spaces, underscores, digits, dashes). Won't false-positive on legitimate
+# bracket content like [click here] or [1] (because those aren't all caps).
+_PLACEHOLDER_RE = re.compile(r"\[[A-Z][A-Z0-9 _\-]{1,40}\]")
+
+
+def find_placeholders(text: str) -> list[str]:
+    """Returns distinct placeholder strings ([FILL IN], [PASTE_X], etc.)
+    found in `text`. Empty list means the text is safe to send."""
+    if not text:
+        return []
+    return sorted(set(_PLACEHOLDER_RE.findall(text)))
+
+
 # ── Personalisation across many testers ──────────────────────────────────
 def personalize_for_all(
     subject_template: str,
