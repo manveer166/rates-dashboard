@@ -92,14 +92,18 @@ with st.expander("🧪 Test login-email plumbing", expanded=False):
 
     _smtp_user = _sec("GMAIL_USER")
     _smtp_pw   = _sec("GMAIL_APP_PASSWORD")
+    _notify_to = _sec("BETA_NOTIFY_TO") or _smtp_user
 
-    dc1, dc2 = st.columns(2)
-    dc1.metric("GMAIL_USER",
+    dc1, dc2, dc3 = st.columns(3)
+    dc1.metric("GMAIL_USER (sender)",
                "✅ set" if _smtp_user else "❌ missing",
                delta=(_smtp_user if _smtp_user else None))
     dc2.metric("GMAIL_APP_PASSWORD",
                "✅ set" if _smtp_pw else "❌ missing",
                delta=(f"{len(_smtp_pw)} chars" if _smtp_pw else None))
+    dc3.metric("BETA_NOTIFY_TO (recipient)",
+               "✅ overridden" if _sec("BETA_NOTIFY_TO") else "default → sender",
+               delta=(_notify_to if _notify_to else None))
 
     if _smtp_pw and " " in _smtp_pw:
         st.warning(
@@ -115,20 +119,22 @@ with st.expander("🧪 Test login-email plumbing", expanded=False):
                 with st.spinner("Connecting to smtp.gmail.com..."):
                     msg = _EmailMessage()
                     msg["From"]    = _smtp_user
-                    msg["To"]      = _smtp_user
+                    msg["To"]      = _notify_to
                     msg["Subject"] = "TEST: Macro Manv login-email plumbing"
                     msg.set_content(
                         f"This is a synchronous test from /Beta_Admin.\n\n"
-                        f"If you're reading this in your inbox, the login-"
-                        f"email plumbing is working — every successful "
-                        f"login from now on will land here.\n\n"
-                        f"Sent: {datetime.utcnow().isoformat()}Z"
+                        f"Sent from:  {_smtp_user}\n"
+                        f"Sent to:    {_notify_to}\n"
+                        f"Sent at:    {datetime.utcnow().isoformat()}Z\n\n"
+                        f"If you're reading this, the plumbing is working — "
+                        f"every successful login from now on will land in "
+                        f"the same inbox."
                     )
                     with _smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15) as srv:
                         srv.login(_smtp_user, _smtp_pw)
                         srv.send_message(msg)
                 st.success(
-                    f"✅ Sent test email to **{_smtp_user}**. Check your "
+                    f"✅ Sent test email to **{_notify_to}**. Check that "
                     "inbox (and spam / Promotions / Updates tabs). If it's "
                     "there, real logins will arrive the same way."
                 )

