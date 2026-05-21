@@ -311,14 +311,19 @@ st.divider()
 # ── Scanner E[Ret] composition ───────────────────────────────────────────
 st.subheader("6. Scanner — what `E[Ret]` actually contains")
 st.markdown(
+    "Each row's expected annualised return (bps/yr) decomposes into "
+    "**carry + rolldown + convexity − transaction cost**:"
+)
+st.latex(
+    r"""
+    E[\text{Ret}] \;=\;
+        \underbrace{(C_{\text{carry}} + C_{\text{rolldown}}) \times 12}_{\text{annualised carry + roll}}
+        \;+\; \underbrace{\tfrac{1}{2}\, C\, \sigma^{2}\, N / \text{DV01}}_{\text{convexity pickup}}
+        \;-\; \underbrace{\text{round-trip bid/ask}}_{\text{transaction cost}}
     """
-Each row's expected annualised return (bps/yr) is the sum of three
-components, in this order:
-
-$$E[\\text{Ret}] = \\underbrace{(C_{\\text{carry}} + C_{\\text{rolldown}}) \\times 12}_{\\text{annualised carry+roll}}
- \\;+\\; \\underbrace{\\tfrac{1}{2} C \\sigma^2 \\cdot N / \\text{DV01}}_{\\text{convexity pickup}}
- \\;-\\; \\underbrace{\\text{round-trip bid/ask}}_{\\text{transaction cost}}$$
-
+)
+st.markdown(
+    """
 Where $\\sigma$ is the **leg yield rvol** (not the spread vol, for
 curve/fly trades — see the convexity section for why).
 

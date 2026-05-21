@@ -1,7 +1,9 @@
 """
-08_Glossary.py — Glossary of fixed-income and rates trading terms.
+13_Glossary.py — Glossary of fixed-income and rates trading terms.
 
 Provides clear definitions for every metric and concept used in the dashboard.
+Public page — no password gate, since it's reference material with no proprietary
+content (definitions of standard industry terms only).
 """
 
 import sys
@@ -9,11 +11,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import streamlit as st
-from dashboard.state import password_gate
 from dashboard.components.header import render_page_header
 
 st.set_page_config(page_title="Glossary", page_icon="📖", layout="wide")
-password_gate()
 render_page_header(current="Glossary")
 
 st.title("📖 Glossary & Index")
