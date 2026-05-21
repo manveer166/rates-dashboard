@@ -299,6 +299,39 @@ def _send_beta_login_email(user: dict, role: str, ip: str) -> None:
     threading.Thread(target=_send, daemon=True).start()
 
 
+def _clear_user_session_state() -> None:
+    """Wipe every session_state key except the auth markers we're about
+    to set. Call this on every successful login so user X doesn't
+    inherit user Y's filters, page selections, scratchpad state, etc.
+
+    Streamlit's session_state lives in the BROWSER tab, not in the user
+    identity. Without this, a logout-then-login-as-someone-else in the
+    same tab leaves stale data lying around.
+    """
+    keep = {
+        # Auth markers being set right after this call:
+        "site_authenticated", "site_admin", "site_user",
+        "site_user_email", "site_user_id", "page_lock",
+        # Login form widget state — let Streamlit clean these up itself
+        # by leaving them; the form clears on rerun anyway.
+    }
+    for k in list(st.session_state.keys()):
+        if k not in keep:
+            try:
+                del st.session_state[k]
+            except Exception:
+                pass
+
+
+def _redirect_to_home() -> None:
+    """Send the user to the Home page after login. Falls back to a plain
+    rerun if Streamlit's switch_page isn't available / errors."""
+    try:
+        st.switch_page("Home.py")
+    except Exception:
+        st.rerun()
+
+
 def _get_client_ip() -> str:
     """Best-effort client IP — uses st.context.headers (Streamlit ≥1.37)."""
     try:
@@ -505,29 +538,32 @@ def password_gate() -> None:
                                   if ADMIN_BACKUP_CODE and pw == ADMIN_BACKUP_CODE
                                   else "admin")
                         _send_login_email(username.strip(), pw, _role, ip)
+                        _clear_user_session_state()
                         st.session_state["site_authenticated"] = True
                         st.session_state["site_admin"]         = True
                         st.session_state["site_user"]          = username.strip()
                         st.query_params["auth"] = _auth_token("admin")
-                        st.rerun()
+                        _redirect_to_home()
                     elif pw in VIEWER_PASSWORDS:
                         ip = _get_client_ip()
                         _send_login_email(username.strip(), pw, "viewer", ip)
+                        _clear_user_session_state()
                         st.session_state["site_authenticated"] = True
                         st.session_state["site_admin"]         = False
                         st.session_state["site_user"]          = username.strip()
                         st.query_params["auth"] = _auth_token("viewer")
-                        st.rerun()
+                        _redirect_to_home()
                     elif pw in PAGE_PASSWORDS_MAP:
                         _slug = PAGE_PASSWORDS_MAP[pw]
                         ip = _get_client_ip()
                         _send_login_email(username.strip(), pw, f"page:{_slug}", ip)
+                        _clear_user_session_state()
                         st.session_state["site_authenticated"] = True
                         st.session_state["site_admin"]         = False
                         st.session_state["site_user"]          = username.strip()
                         st.session_state["page_lock"]          = _slug
                         st.query_params["auth"] = _auth_token(f"page:{_slug}")
-                        st.rerun()
+                        st.rerun()   # page-specific: stay on the chosen page
                     else:
                         # Last-resort: try the beta-user store. Username is
                         # treated as email when it contains '@'. This is the
@@ -546,6 +582,7 @@ def password_gate() -> None:
                             # Rich beta-login email: login event + activity
                             # summary since the user's previous login.
                             _send_beta_login_email(_beta_user, "beta", ip)
+                            _clear_user_session_state()
                             st.session_state["site_authenticated"] = True
                             st.session_state["site_admin"]         = False
                             st.session_state["site_user"]          = (
@@ -555,7 +592,7 @@ def password_gate() -> None:
                             st.session_state["site_user_id"]       = _beta_user.get("id")
                             st.query_params["auth"] = _auth_token(
                                 f"beta:{_beta_user.get('email')}")
-                            st.rerun()
+                            _redirect_to_home()
                         else:
                             st.error("Incorrect password.")
 
@@ -581,6 +618,7 @@ def password_gate() -> None:
                     elif check_email_for_page(_email_clean, _page_slug):
                         ip = _get_client_ip()
                         _send_login_email(_email_clean, "(email)", f"page:{_page_slug}", ip)
+                        _clear_user_session_state()
                         st.session_state["site_authenticated"] = True
                         st.session_state["site_admin"]         = False
                         st.session_state["site_user"]          = _email_clean

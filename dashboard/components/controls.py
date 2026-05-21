@@ -94,8 +94,11 @@ def render_sidebar_controls(public: bool = False) -> None:
     if user_label:
         st.sidebar.caption(f"👤 Logged in as **{user_label}**")
     if st.sidebar.button("🚪 Log Out", use_container_width=True):
-        for key in ("site_authenticated", "site_admin", "site_user"):
-            st.session_state.pop(key, None)
+        # Wipe EVERY session_state key — auth markers, page filters,
+        # widget state, scratchpads — so the next user logging in on
+        # this same browser tab starts genuinely fresh.
+        for k in list(st.session_state.keys()):
+            st.session_state.pop(k, None)
         try:
             st.query_params.clear()
         except Exception:
