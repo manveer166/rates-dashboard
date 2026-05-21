@@ -34,7 +34,7 @@ backtester, and the rest of the trader stack.
 <p style="color:var(--c-text-3);font-size:12px;margin-bottom:14px;">
 Research-grade RV analytics: cash-flow-level DV01 &amp; convexity,
 forward-rate carry, practitioner bid/ask widths. Every formula documented
-on the <a href="/Methodology" style="color:#4fc3f7;text-decoration:none">Methodology page</a>.
+on the <a href="/Methodology" target="_self" style="color:#4fc3f7;text-decoration:none">Methodology page</a>.
 </p>
     """,
     unsafe_allow_html=True,

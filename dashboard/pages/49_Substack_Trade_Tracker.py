@@ -52,12 +52,12 @@ st.markdown(
     "(directional · carry · convexity · transaction cost) on every leg."
     "</p>"
     '<p style="color:var(--c-text-3);font-size:12px;margin-bottom:14px;">'
-    'Same source of truth as the <a href="/Trade_of_the_Week" '
+    'Same source of truth as the <a href="/Trade_of_the_Week" target="_self" '
     'style="color:#4fc3f7;text-decoration:none">Trade of the Week</a> '
     'page. The math layer is the same one used by the '
-    '<a href="/Backtester" style="color:#4fc3f7;text-decoration:none">'
+    '<a href="/Backtester" target="_self" style="color:#4fc3f7;text-decoration:none">'
     'Backtester</a> — documented on the '
-    '<a href="/Methodology" style="color:#4fc3f7;text-decoration:none">'
+    '<a href="/Methodology" target="_self" style="color:#4fc3f7;text-decoration:none">'
     'Methodology</a> page.'
     "</p>",
     unsafe_allow_html=True,

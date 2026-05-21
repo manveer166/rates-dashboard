@@ -399,7 +399,7 @@ def main():
         '<p style="color:var(--c-text-3);font-size:12px;margin-bottom:8px;">'
         "Cash-flow DV01 · forward-rate carry · second-order convexity · "
         "practitioner bid/ask · every formula on the "
-        '<a href="/Methodology" style="color:#4fc3f7;text-decoration:none">'
+        '<a href="/Methodology" target="_self" style="color:#4fc3f7;text-decoration:none">'
         'Methodology page</a>.'
         "</p>",
         unsafe_allow_html=True,
