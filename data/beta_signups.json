@@ -107,7 +107,7 @@
   {
     "id": "22532171-2a68-47e1-a186-81a385fd479d",
     "email": "beta06@macromanv.com",
-    "name": "",
+    "name": "Endres Wilhelm",
     "organisation": "",
     "role": "",
     "linkedin": "",
@@ -123,7 +123,8 @@
     "password_hash": "74fd09e1390c90cb879b1f364433891c7a244c1ed01fb47780713e2a2c4d8146",
     "password_salt": "f01fbb9528f49502cc76c2b03d03f766",
     "credentials_sent_at": null,
-    "last_login_at": null
+    "last_login_at": null,
+    "real_email": "endreswilhelm@gmail.com"
   },
   {
     "id": "8098e9d6-8930-4104-a695-eca253804538",
@@ -149,7 +150,7 @@
   {
     "id": "6ee35219-8a11-4ae3-9714-ed8d3d4b5871",
     "email": "beta08@macromanv.com",
-    "name": "",
+    "name": "Jefferson Low",
     "organisation": "",
     "role": "",
     "linkedin": "",
@@ -165,7 +166,8 @@
     "password_hash": "5abbb6da03bf6863e69406853c1f58153c154fa67c6455a0459b4608081d2197",
     "password_salt": "528f88179c5e1f9df3533bef99f62336",
     "credentials_sent_at": null,
-    "last_login_at": null
+    "last_login_at": null,
+    "real_email": "jefferson9406@gmail.com"
   },
   {
     "id": "edbbd65c-6e09-4086-990c-a13153c26b47",

@@ -20,10 +20,15 @@ import streamlit as st
 
 from dashboard.components.controls import render_sidebar_controls
 from dashboard.components.header import render_page_header
-from dashboard.state import init_session_state, password_gate
+from dashboard.state import init_session_state
 
+# Methodology is intentionally PUBLIC.
+# Reasoning: it documents every formula + sign convention used in the
+# dashboard. Prospective subscribers + Substack readers can land here
+# from the marketing copy and trust the math before they buy. The
+# NDA's clause 5 non-use covenant remains the real protection for
+# the proprietary parameter values + integration.
 st.set_page_config(page_title="Methodology", page_icon="📐", layout="wide")
-password_gate()
 init_session_state()
 render_sidebar_controls()
 render_page_header(current="Methodology")

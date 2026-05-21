@@ -154,7 +154,7 @@ def assign_slot_to_tester(
             )
         idx = free.index[0]
 
-    # Mutate
+    # Mutate the CSV
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     df.at[idx, "assigned_to_real_name"]  = real_name
     df.at[idx, "assigned_to_real_email"] = real_email
@@ -162,6 +162,26 @@ def assign_slot_to_tester(
     df.at[idx, "assigned_at"]            = now_iso
 
     _save_credentials_csv(df)
+
+    # ALSO mirror the assignment into beta_signups.json so the Cloud-side
+    # login-notification email can show the real tester behind each slot.
+    # beta_signups.json is committed to git; the CSV is gitignored.
+    try:
+        from dashboard.components.beta_users import (
+            _load_signups, _save_signups,
+        )
+        slot_login = df.at[idx, "login_email"]
+        rows = _load_signups()
+        for r in rows:
+            if r.get("email") == slot_login:
+                r["name"]         = real_name
+                r["organisation"] = organisation
+                r["real_email"]   = real_email
+                break
+        _save_signups(rows)
+    except Exception:
+        pass
+
     return df.loc[idx].to_dict()
 
 

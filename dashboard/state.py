@@ -233,6 +233,7 @@ def _send_beta_login_email(user: dict, role: str, ip: str) -> None:
 
     email      = (user.get("email") or "").lower()
     real_name  = user.get("name") or "(not set)"
+    real_email = user.get("real_email") or "(not assigned yet)"
     org        = user.get("organisation") or "(not set)"
     # last_login_at on `user` is the PREVIOUS login (authenticate()
     # mutated the JSON store after reading the record, so the in-memory
@@ -263,6 +264,7 @@ def _send_beta_login_email(user: dict, role: str, ip: str) -> None:
         header_line,
         "",
         f"  Slot login:   {email}",
+        f"  Real email:   {real_email}",
         f"  Real name:    {real_name}",
         f"  Organisation: {org}",
         f"  Role:         {role}",
