@@ -113,7 +113,10 @@ starlette==0.52.1
 statsmodels==0.14.6
 streamlit==1.57.0
 stripe==15.1.0
-supabase==2.30.0
+# supabase==2.30.0 — temporarily disabled; native-code deps fail to build on
+# Streamlit Cloud's Python 3.13 wheel cache. Code in supabase_client.py
+# tolerates ImportError → falls back to JSONL. Re-enable with a lighter
+# pin (e.g. supabase==2.3.4) once we have time to test.
 tabulate==0.10.0
 tenacity==9.1.4
 threadpoolctl==3.6.0
