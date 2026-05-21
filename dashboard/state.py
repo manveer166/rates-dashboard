@@ -229,13 +229,29 @@ def _send_beta_login_email(user: dict, role: str, ip: str) -> None:
     # mutated the JSON store after reading the record, so the in-memory
     # record returned still holds the old value).
     prev_login = user.get("last_login_at") or ""
+    is_first_login = not prev_login
 
     now_str    = datetime.now().strftime("%d %b %Y %H:%M:%S")
 
     summary    = _build_session_summary(email, prev_login)
 
+    # Subject line shouts about first logins so they stand out in the inbox
+    if is_first_login:
+        subject = f"🎉 FIRST LOGIN: {email}" + (
+            f" ({real_name})" if real_name and real_name != "(not set)" else ""
+        )
+    else:
+        subject = f"beta login + summary: {email}"
+
+    header_line = (
+        "🎉 FIRST LOGIN — this tester has just used their access for the "
+        "first time. Welcome them via Gmail if you haven't already."
+        if is_first_login else
+        "Beta tester logged in"
+    )
+
     body_lines = [
-        "Beta tester logged in",
+        header_line,
         "",
         f"  Slot login:   {email}",
         f"  Real name:    {real_name}",
@@ -249,15 +265,13 @@ def _send_beta_login_email(user: dict, role: str, ip: str) -> None:
     ]
     if summary:
         body_lines += ["Activity since previous login:", "", summary]
-    else:
+    elif is_first_login:
         body_lines += [
-            "No activity recorded since previous login."
-            if prev_login else
-            "(First login ever — no previous activity to summarise.)"
+            "First login ever — no previous activity to summarise yet.",
+            "Future logins will include a session summary in this email.",
         ]
-
-    body = "\n".join(body_lines)
-    subject = f"beta login + summary: {email}"
+    else:
+        body_lines += ["No activity recorded since previous login."]
 
     def _send():
         try:

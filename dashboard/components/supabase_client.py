@@ -1,16 +1,18 @@
-"""Supabase client — persistent activity store.
+"""Lightweight Supabase REST client using httpx.
 
-Returns a configured client if SUPABASE_URL + SUPABASE_SERVICE_KEY are
-present in Streamlit secrets (Cloud or local .streamlit/secrets.toml).
-Returns None otherwise — callers fall back to the local JSONL file.
+Why httpx instead of supabase-py: supabase-py 2.30 pulls in heavy
+native-code dependencies (cryptography 48, pyroaring, pyiceberg) that
+don't always build on Streamlit Cloud's Python 3.13 wheel cache —
+broke the Cloud build the last time we tried. httpx is already a
+core dependency for ~everything else, so this adds zero new packages.
 
-Why SERVICE_KEY (not ANON):
-  • The dashboard runs server-side on Streamlit Cloud — secrets never
-    reach the user's browser. SERVICE_KEY can bypass Row Level Security,
-    which lets us insert/select without writing RLS policies for a
-    private admin-only table.
-  • If you wanted the public to read this table, switch to anon + add
-    a policy. For now everything's admin-only.
+Returns helpful sentinels:
+  • supabase_configured() — True iff URL + key are both set
+  • insert(table, row)     — True on success
+  • select(table, ...)     — list of dicts, or [] on error/no rows
+
+Callers should also call supabase_configured() to disambiguate
+"no rows returned" from "Supabase isn't reachable".
 
 Table schema lives in scripts/supabase_schema.sql.
 """
@@ -19,13 +21,8 @@ from __future__ import annotations
 
 from typing import Optional
 
+import httpx
 import streamlit as st
-
-try:
-    from supabase import create_client, Client
-except ImportError:    # supabase package not installed (offline / fresh venv)
-    create_client = None
-    Client = None
 
 
 def _secret(key: str, default: str = "") -> str:
@@ -35,22 +32,71 @@ def _secret(key: str, default: str = "") -> str:
         return default
 
 
-@st.cache_resource(show_spinner=False)
-def get_client() -> Optional["Client"]:
-    """Cached Supabase client. None if not configured / package missing."""
-    if create_client is None:
-        return None
-    url = _secret("SUPABASE_URL", "")
-    key = _secret("SUPABASE_SERVICE_KEY", "")
-    if not url or not key:
-        return None
-    try:
-        return create_client(url, key)
-    except Exception:
-        return None
+def _config() -> tuple[Optional[str], Optional[str]]:
+    """Return (url, key) — both stripped/normalised. Either may be None
+    if the secrets aren't set yet."""
+    url = (_secret("SUPABASE_URL", "") or "").rstrip("/")
+    key = (_secret("SUPABASE_SERVICE_KEY", "") or "").strip()
+    return (url or None), (key or None)
 
 
 def supabase_configured() -> bool:
-    """Cheap check used by admin pages to decide which storage backend to
-    surface in the UI ('Supabase' vs 'local JSONL fallback')."""
-    return get_client() is not None
+    """Cheap check used by callers (and the admin UI) to decide whether
+    to write to / read from Supabase or fall back to local JSONL."""
+    url, key = _config()
+    return bool(url and key)
+
+
+def _headers(key: str, prefer: str = "") -> dict:
+    h = {
+        "apikey":        key,
+        "Authorization": f"Bearer {key}",
+        "Content-Type":  "application/json",
+    }
+    if prefer:
+        h["Prefer"] = prefer
+    return h
+
+
+def insert(table: str, row: dict, timeout: float = 5.0) -> bool:
+    """POST one row. Returns True iff Supabase accepted the write."""
+    url, key = _config()
+    if not url or not key:
+        return False
+    try:
+        r = httpx.post(
+            f"{url}/rest/v1/{table}",
+            json=row,
+            headers=_headers(key, prefer="return=minimal"),
+            timeout=timeout,
+        )
+        return r.status_code in (200, 201, 204)
+    except Exception:
+        return False
+
+
+def select(
+    table:   str,
+    columns: str = "*",
+    order:   str = "ts.desc",
+    limit:   int = 10000,
+    timeout: float = 10.0,
+) -> list[dict]:
+    """SELECT rows. Returns [] on error or empty result. Use
+    supabase_configured() upstream to disambiguate."""
+    url, key = _config()
+    if not url or not key:
+        return []
+    try:
+        r = httpx.get(
+            f"{url}/rest/v1/{table}",
+            params={"select": columns, "order": order, "limit": limit},
+            headers=_headers(key),
+            timeout=timeout,
+        )
+        if r.status_code == 200:
+            data = r.json()
+            return data if isinstance(data, list) else []
+        return []
+    except Exception:
+        return []

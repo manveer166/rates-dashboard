@@ -232,14 +232,10 @@ def authenticate(email: str, password: str) -> Optional[dict]:
 def _supabase_insert_activity(rec: dict) -> bool:
     """Try inserting one event into Supabase. Returns True iff written."""
     try:
-        from dashboard.components.supabase_client import get_client
-        sb = get_client()
-        if not sb:
-            return False
-        # Strip the local-style 'ts' field — Supabase fills it via DEFAULT NOW()
+        from dashboard.components.supabase_client import insert
+        # Strip the local 'ts' field — Supabase fills via DEFAULT NOW()
         payload = {k: v for k, v in rec.items() if k != "ts"}
-        sb.table("beta_activity").insert(payload).execute()
-        return True
+        return insert("beta_activity", payload)
     except Exception:
         return False
 
@@ -280,21 +276,17 @@ def log_activity(user_email: str, page: str,
 
 
 def _load_activity_from_supabase(limit: int = 50000) -> Optional[pd.DataFrame]:
-    """Pull recent activity rows from Supabase. Returns None on failure."""
+    """Pull recent activity rows from Supabase. Returns None if Supabase
+    isn't configured / reachable (caller falls back to JSONL)."""
     try:
-        from dashboard.components.supabase_client import get_client
-        sb = get_client()
-        if not sb:
-            return None
-        resp = (
-            sb.table("beta_activity")
-              .select("*")
-              .order("ts", desc=True)
-              .limit(limit)
-              .execute()
+        from dashboard.components.supabase_client import (
+            select, supabase_configured,
         )
-        rows = resp.data or []
+        if not supabase_configured():
+            return None
+        rows = select("beta_activity", "*", "ts.desc", limit)
         if not rows:
+            # Empty == "no events yet" rather than "Supabase unreachable"
             return pd.DataFrame(columns=["ts", "user_email", "page", "action"])
         df = pd.DataFrame(rows)
         df["ts"] = pd.to_datetime(df["ts"], errors="coerce", utc=True)

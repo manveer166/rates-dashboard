@@ -9,7 +9,9 @@ With Supabase wired up, every page view + login is persisted in a real
 Postgres DB. The dashboard transparently uses Supabase when configured
 and falls back to the local JSONL file when not.
 
-**Time:** ~6 minutes end to end.
+**Time:** ~6 minutes end to end. No `pip install` needed — the client
+uses `httpx` (already in requirements) to hit Supabase's REST API
+directly. Lighter and more reliable than the `supabase-py` package.
 
 ---
 
