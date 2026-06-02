@@ -2209,6 +2209,14 @@ if section.startswith("11"):
             st.caption("Bubble size ∝ |1-day move| — bigger bubble = bigger move yesterday")
 
 
+# ── Code-on-data playground ────────────────────────────────────────────
+# Beta-tester scratchpad: prototype your own algos directly against the
+# yield-curve DataFrame. Pre-loaded with df, fi, np, pd, go.
+st.divider()
+from dashboard.components.code_playground import render_code_playground
+render_code_playground(df=_get_df())
+
+
 # ── Tutorial overlay (must be LAST) ────────────────────────────────────
 from dashboard.tutorial import render_tutorial
 render_tutorial(page="analysis")
