@@ -87,11 +87,98 @@ st.divider()
 
 
 # ── Tabs ────────────────────────────────────────────────────────────────
-tab_subs, tab_comps, tab_manual = st.tabs([
+tab_revenue, tab_subs, tab_comps, tab_manual = st.tabs([
+    "📊 Revenue",
     f"💳 Subscribers ({n_subs})",
     f"🪶 Substack comp queue ({n_pending})",
     "⚙️ Manual tier flip",
 ])
+
+
+# ── Tab 0: Revenue snapshot ────────────────────────────────────────────
+with tab_revenue:
+    st.subheader("Revenue snapshot")
+
+    # Compute basic MRR-like metrics from the local subscribers store.
+    # Each active subscriber is counted at their tier price; founding
+    # locked subscribers stay at their original rate.
+    TIER_PRICE = {
+        "founding":          29.0,
+        "pro":               49.0,
+        "founding_substack": 32.0,
+        "pro_substack":      54.0,
+    }
+    active   = [s for s in subs if s.get("status") in ("active", "trialing")]
+    cancelled = [s for s in subs if s.get("status") in ("canceled", "past_due", "unpaid")]
+
+    mrr      = sum(TIER_PRICE.get(s.get("tier", ""), 0.0) for s in active)
+    n_active = len(active)
+    n_canc   = len(cancelled)
+    arpu     = (mrr / n_active) if n_active else 0.0
+
+    # Tier breakdown
+    from collections import Counter
+    tier_counts = Counter(s.get("tier", "(unknown)") for s in active)
+    n_founding  = tier_counts.get("founding", 0) + tier_counts.get("founding_substack", 0)
+    seats_left  = max(0, 100 - n_founding)
+
+    r1, r2, r3, r4 = st.columns(4)
+    r1.metric("MRR (est.)", f"${mrr:,.0f}",
+              delta=f"{n_active} active sub" + ("s" if n_active != 1 else ""))
+    r2.metric("ARPU",       f"${arpu:,.2f}")
+    r3.metric("Founding seats used",
+              f"{n_founding}/100",
+              delta=f"{seats_left} left",
+              delta_color=("normal" if seats_left > 20 else "inverse"))
+    r4.metric("Cancelled / past-due", n_canc)
+
+    st.write("")
+    if n_active == 0:
+        st.info(
+            "No active subscribers yet. Once `STRIPE_SECRET_KEY` is set in "
+            "Streamlit Cloud secrets and the first paid checkout completes, "
+            "the numbers above start filling in. See "
+            "`legal/STRIPE_SETUP.md` for the 20-min walkthrough."
+        )
+    else:
+        # Tier mix table
+        st.subheader("Tier mix")
+        tier_rows = [
+            {"Tier": t.replace("_", " ").title(),
+             "Subs": c,
+             "Monthly $": TIER_PRICE.get(t, 0.0) * c}
+            for t, c in tier_counts.most_common()
+        ]
+        st.dataframe(pd.DataFrame(tier_rows),
+                     use_container_width=True, hide_index=True)
+
+        # Recent signups (last 30 days)
+        st.subheader("Recent signups (last 30 days)")
+        cutoff = pd.Timestamp.utcnow() - pd.Timedelta(days=30)
+        recent = [
+            s for s in active
+            if pd.to_datetime(s.get("created_at", ""), errors="coerce", utc=True)
+               and pd.to_datetime(s.get("created_at", ""), errors="coerce", utc=True) >= cutoff
+        ]
+        if recent:
+            recent_df = pd.DataFrame([
+                {"email":      s.get("email", ""),
+                 "tier":       s.get("tier", ""),
+                 "created_at": s.get("created_at", ""),
+                 "status":     s.get("status", "")}
+                for s in recent
+            ])
+            st.dataframe(recent_df, use_container_width=True, hide_index=True)
+        else:
+            st.caption("No signups in the last 30 days.")
+
+    st.divider()
+    st.caption(
+        "MRR is computed locally from your subscribers store. Treat it as "
+        "an estimate — Stripe's invoicing is the canonical source. "
+        "For a definitive view, log into Stripe Dashboard → Reports → "
+        "Revenue."
+    )
 
 
 # ── Tab 1: Subscribers ─────────────────────────────────────────────────

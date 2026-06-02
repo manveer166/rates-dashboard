@@ -421,6 +421,49 @@ def main():
                      label="💎 Pricing",
                      use_container_width=True)
 
+    # ── Highlights strip — best-in-class features, six deep links ──────
+    st.write("")
+    st.markdown(
+        '<p style="color:var(--c-text-2);font-size:13px;'
+        'letter-spacing:0.6px;font-weight:600;text-transform:uppercase;'
+        'margin:14px 0 6px 0;">✨ Start here — the dashboard\'s highlights</p>',
+        unsafe_allow_html=True,
+    )
+    h1, h2, h3 = st.columns(3)
+    with h1:
+        st.page_link("pages/06_Analysis.py",
+                     label="📊 E[Ret] decomposition (Scanner)",
+                     use_container_width=True,
+                     help="Carry + Rolldown + Convexity − TCost. "
+                          "Every ranked trade explains itself.")
+        st.page_link("pages/24_Backtester.py",
+                     label="📈 Backtester — four-component P&L",
+                     use_container_width=True,
+                     help="Directional · Carry · Convexity · TCost, "
+                          "attributed daily, with carry-path chart.")
+    with h2:
+        st.page_link("pages/49_Substack_Trade_Tracker.py",
+                     label="📋 Trade Tracker → Substack",
+                     use_container_width=True,
+                     help="Public attribution of every Substack trade "
+                          "of the week — did it work, and why.")
+        st.page_link("pages/06_Analysis.py",
+                     label="🎯 Sharpe rankings (Analysis)",
+                     use_container_width=True,
+                     help="DV01-normalised Sharpe across outrights, "
+                          "curves and flies.")
+    with h3:
+        st.page_link("pages/06_Analysis.py",
+                     label="🧮 Composite Score (Analysis)",
+                     use_container_width=True,
+                     help="Carry-roll · z-score · regime-fit blended "
+                          "into one ranking number per trade.")
+        st.page_link("pages/43_What_Changed.py",
+                     label="🌅 What Changed Today",
+                     use_container_width=True,
+                     help="The 90-second daily diff: biggest moves, "
+                          "shape shifts, Sharpe flips.")
+
     # ── Stale-cache banner (admin sees refresh button) ─────────────────────
     from dashboard.state import render_cache_freshness_banner
     render_cache_freshness_banner(stale_hours=24)
@@ -661,6 +704,52 @@ def main():
         f"| {len(df):,} trading days | {df.shape[1]} series "
         f"| Sources: US Treasury · FRED (ICE SOFR, ICE BofA, OECD mirrors) "
         f"· ECB SDW · BoE IADB · Japan MoF · CFTC"
+    )
+
+    # ── Appendix — what we're proud of ────────────────────────────────────
+    st.divider()
+    st.markdown(
+        '<p style="color:var(--c-text-2);font-size:13px;letter-spacing:0.6px;'
+        'font-weight:600;text-transform:uppercase;margin:14px 0 8px 0;">'
+        '✨ Appendix — what we\'re delighted about</p>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        """
+**1. The math is correct.**
+This sounds basic but it's the rarest thing in retail rates analytics.
+Cash-flow-level DV01 (not duration shortcut), second-order convexity
+properly normalised to yield-bps-equivalent (the 15× bug we caught and
+fixed), four-component P&L attribution in the Backtester, sign
+conventions consistent between the
+<a href="/Methodology" target="_self">Methodology page</a> and the
+implementation. An independent audit confirmed it end-to-end. Nobody
+else in the public-facing rates analytics space documents this with
+this level of rigour.
+
+**2. The Methodology page is the differentiation.**
+Now public. Every formula documented, every parameter named, every
+sign convention spelled out. Bloomberg / Refinitiv hide their math
+behind enterprise contracts. We show ours.
+
+**3. E[Ret] decomposition in the Scanner.**
+Carry + Rolldown + Convexity − Transaction Cost, separately attributed
+in `Conv` and `TCost` columns. A trader can see *why* a trade is
+ranked where it is, not just the ranking. That's what makes the
+Scanner trustworthy.
+
+**4. Backtester P&L attribution.**
+Same four components, attributed daily, with the carry-path chart
+showing how annualised carry evolved through the window. Most retail
+backtesters give you a P&L line. Ours gives you the *reasons*.
+
+**5. Trade Tracker → Substack closes the loop.**
+The "did our trade work" question gets a public, honest answer every
+week on the
+<a href="/Substack_Trade_Tracker" target="_self">Trade Tracker</a>
+page. That's a 12-month compound trust-building machine.
+""",
+        unsafe_allow_html=True,
     )
 
     # ── Tutorial (must be LAST — renders after all content) ────────────

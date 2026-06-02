@@ -42,6 +42,29 @@ st.markdown(
     "</p>",
     unsafe_allow_html=True,
 )
+
+# ── Section index — what's covered + one-line summary ────────────────────
+st.markdown(
+    """
+| § | Section | What it covers |
+|---|---|---|
+| 1 | **Curve construction** | Tenors, sources (Treasury · FRED · ECB · BoE · JMF), splining |
+| 2 | **DV01** | Cash-flow-level — no duration shortcut. Per-leg, per-trade |
+| 3 | **Convexity** | ½·C·σ² (yield-bps-equivalent, DV01-normalised) — the 15× bug story |
+| 4 | **Carry & rolldown** | Forward-rate carry, rolldown over user-chosen horizon |
+| 4b | **Mean reversion** | OU half-life via AR(1) per series; used in z-scoring |
+| 5 | **Transaction costs** | Practitioner bid/ask widths · curve & fly bp-equivalence |
+| 6 | **Scanner E[Ret]** | Carry + Roll + Convexity − TCost · what every column means |
+| 7 | **Backtester P&L** | Four-component daily attribution + sign-convention table |
+| 8 | **Regime detector** | K-means on macro inputs · empirical transition matrix |
+| 9 | **Composite Score** | How the Analysis ranking blends carry, z-score, regime fit |
+"""
+)
+st.caption(
+    "Jump to a section with the sidebar's page nav or "
+    "browser-find (Cmd+F). Every formula has a one-line implementation "
+    "note pointing at the `fixed_income/` module where it lives."
+)
 st.divider()
 
 
