@@ -306,8 +306,13 @@ if section.startswith("0"):
              tenor_label=None, tenors=None):
         """tenors = (t1,) | (t1,t2) | (w1,belly,w2) for conv/DV01 calc."""
         s = series_raw.dropna()
-        if len(s) < z_window:
+        # Need a minimum of ~60 obs for a meaningful rolling stat. Below
+        # that, every output column is unreliable. If the picked z-window
+        # is larger than what we have, fall back to the available history
+        # (z-score becomes less stable but the table still builds).
+        if len(s) < 60:
             return None
+        _eff_zw = min(z_window, max(60, len(s) - 1))
         curr = float(s.iloc[-1])
         curr_display = curr if trade_type == "Outright" else curr * 100  # bps
         carry_bps = cr_dict["carry"] * direction_sign
@@ -329,7 +334,7 @@ if section.startswith("0"):
                 dv01_bps_val = _dv01_bps(t1)
 
         ann_ret = ann_cr + conv_ann_bps
-        z = fi.zscore_current(s, z_window)
+        z = fi.zscore_current(s, _eff_zw)   # falls back to available history
         sharpe = ann_ret / rvol if (rvol and rvol > 0) else np.nan
         chg = _pct_changes(s)
         row = {
@@ -754,7 +759,12 @@ if section.startswith("0"):
         else:
             st.info("No trades match the selected filters.")
     else:
-        st.warning("Not enough data to build trade table.")
+        st.warning(
+            "Not enough data to build trade table — every series has < 60 "
+            "observations after dropping NaNs. Try a longer date range in "
+            "the sidebar (the home page lookback selector also affects this "
+            "page), or click **Refresh Data** to repull the cache."
+        )
 
     # ═══════════════════════════════════════════════════════════════════════
     # TRADE DETAIL — level, z-score, rolling E[Ret], rolling Sharpe
