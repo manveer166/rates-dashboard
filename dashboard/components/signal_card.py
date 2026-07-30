@@ -266,3 +266,14 @@ def render_units_legend() -> None:
         "*Max DD* in bps from peak. "
         "*DV01* = $ per basis point."
     )
+    st.caption(
+        "**Carry columns — two conventions, both annualised.** "
+        "*Fwd* is the forward-implied carry+roll (forward rate − spot rate), "
+        "the swap convention, and it is what feeds E[Ret]: "
+        "**E[Ret] = Fwd + Conv**, exactly. "
+        "*Carry* and *Roll* are a separate decomposition — funding carry "
+        "(yield over SOFR) plus rolldown, the bond convention. They will "
+        "not generally sum to *Fwd*, because a repo-funded bond and a swap "
+        "earn their carry differently. Shown side by side deliberately: if "
+        "the two disagree sharply, the funding assumption is doing the work."
+    )

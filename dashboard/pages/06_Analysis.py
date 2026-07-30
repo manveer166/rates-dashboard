@@ -315,10 +315,19 @@ if section.startswith("0"):
         _eff_zw = min(z_window, max(60, len(s) - 1))
         curr = float(s.iloc[-1])
         curr_display = curr if trade_type == "Outright" else curr * 100  # bps
-        carry_bps = cr_dict["carry"] * direction_sign
-        roll_bps = cr_dict["rolldown"] * direction_sign
-        total_cr = cr_dict["total"] * direction_sign
-        ann_cr = total_cr * (12.0 / hold_months)
+        # Every P&L column is annualised so the table is internally
+        # consistent. Previously Carry/Roll were shown for the holding
+        # period while Conv/E[Ret] were annualised — four columns in two
+        # unit systems, which made the row look like it didn't add up.
+        _ann_factor = 12.0 / hold_months
+        carry_bps = cr_dict["carry"]    * direction_sign * _ann_factor
+        roll_bps  = cr_dict["rolldown"] * direction_sign * _ann_factor
+        # `total` is the forward-implied carry+roll (fwd rate − spot rate).
+        # It is NOT carry + rolldown: those two are a separate funding-plus-
+        # roll decomposition and use the bond convention, whereas `total`
+        # uses the swap convention. E[Ret] is built on `total`, so we surface
+        # it as its own column and let E[Ret] = Fwd + Conv reconcile exactly.
+        ann_cr = cr_dict["total"] * direction_sign * _ann_factor
         daily_chg = s.diff().dropna() * 100
         rvol = float(daily_chg.tail(vol_window).std() * np.sqrt(252)) if len(daily_chg) >= vol_window else np.nan
 
@@ -343,6 +352,7 @@ if section.startswith("0"):
             "DV01 / ModDur": round(dv01_bps_val, 2) if not np.isnan(dv01_bps_val) else np.nan,
             "Carry": round(carry_bps, 1),
             "Roll": round(roll_bps, 1),
+            "Fwd": round(ann_cr, 1),
             "Conv": round(conv_ann_bps, 1),
             "E[Ret]": round(ann_ret, 1),
             "Risk": round(rvol, 1) if not np.isnan(rvol) else np.nan,
@@ -534,12 +544,16 @@ if section.startswith("0"):
             # E[Ret]: green=high positive, red=negative
             if "E[Ret]" in result.columns:
                 styler = styler.background_gradient(subset=["E[Ret]"], cmap="RdYlGn", vmin=-50, vmax=150)
-            # Carry: green=positive, red=negative
+            # Carry: green=positive, red=negative. Ranges are annualised —
+            # they were previously calibrated for 1-month values.
             if "Carry" in result.columns:
-                styler = styler.background_gradient(subset=["Carry"], cmap="RdYlGn", vmin=-10, vmax=15)
+                styler = styler.background_gradient(subset=["Carry"], cmap="RdYlGn", vmin=-120, vmax=180)
             # Roll: green=positive, red=negative
             if "Roll" in result.columns:
-                styler = styler.background_gradient(subset=["Roll"], cmap="RdYlGn", vmin=-5, vmax=5)
+                styler = styler.background_gradient(subset=["Roll"], cmap="RdYlGn", vmin=-60, vmax=60)
+            # Fwd: the forward-implied carry+roll that feeds E[Ret]
+            if "Fwd" in result.columns:
+                styler = styler.background_gradient(subset=["Fwd"], cmap="RdYlGn", vmin=-50, vmax=150)
             # Conv: green=high (more convexity benefit)
             if "Conv" in result.columns:
                 styler = styler.background_gradient(subset=["Conv"], cmap="RdYlGn", vmin=0, vmax=10)
