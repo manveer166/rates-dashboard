@@ -7,6 +7,9 @@ on:
     - cron: "0 11 * * 1-5"
   workflow_dispatch: {}  # manual trigger from the Actions tab
 
+permissions:
+  contents: write
+
 jobs:
   brief:
     runs-on: ubuntu-latest
