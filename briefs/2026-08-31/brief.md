@@ -1,0 +1,7 @@
+# Morning Rates Scan — 31 Aug 2026
+
+![Yield curve](curve.html)
+
+[See the live curve →](/Yield_Curve?utm_source=substack&utm_medium=brief&utm_campaign=morning_scan&utm_content=2026-08-31)
+
+_No scanner data available — run the dashboard to refresh the cache._
