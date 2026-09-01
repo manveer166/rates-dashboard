@@ -364,6 +364,40 @@ LOOKBACK_OPTIONS = {
     "5 Years":  1260,
 }
 
+# A feed is treated as dead once its newest observation is this far behind
+# the newest row in the frame. Guards the failure mode where a dead feed's
+# last known value gets rendered as though it were today's level.
+STALE_AFTER_DAYS = 5
+
+
+def last_observed(df: pd.DataFrame, col: str):
+    """Timestamp of the most recent non-null value in `col`, else None."""
+    if col not in df.columns:
+        return None
+    s = df[col].dropna()
+    return s.index[-1] if len(s) else None
+
+
+def is_fresh(df: pd.DataFrame, col: str, max_stale_days: int = STALE_AFTER_DAYS) -> bool:
+    """True if `col` has an observation within `max_stale_days` of the
+    frame's latest row."""
+    last = last_observed(df, col)
+    if last is None or len(df) == 0:
+        return False
+    return (df.index[-1] - last).days <= max_stale_days
+
+
+def stale_note(df: pd.DataFrame, entries: list) -> str:
+    """One-line 'feed unavailable' caption naming when each series last
+    printed, so an outage reads as an outage rather than as a bug."""
+    bits = []
+    for label, col in entries:
+        last = last_observed(df, col)
+        bits.append(f"{label} — last {last.strftime('%d %b')}" if last is not None
+                    else f"{label} — no data")
+    return "⚠️ Feed unavailable: " + "  ·  ".join(bits)
+
+
 def metric_row(df: pd.DataFrame, definitions: list, lookback_days: int):
     """Render a row of st.metric cards comparing latest vs N days ago."""
     latest = df.iloc[-1]
@@ -518,25 +552,28 @@ def main():
     st.divider()
 
     # ── International yields ───────────────────────────────────────────────
-    intl_definitions = []
-    if "DE_10Y" in df.columns:
-        intl_definitions.append(("🇩🇪 DE 10Y (EUR)", "DE_10Y", "%"))
-    if "DE_2Y" in df.columns:
-        intl_definitions.append(("🇩🇪 DE 2Y", "DE_2Y", "%"))
-    if "GB_10Y" in df.columns:
-        intl_definitions.append(("🇬🇧 UK 10Y (Gilt)", "GB_10Y", "%"))
-    if "GB_2Y" in df.columns:
-        intl_definitions.append(("🇬🇧 UK 2Y", "GB_2Y", "%"))
-    if "CH_10Y" in df.columns:
-        intl_definitions.append(("🇨🇭 CH 10Y (CHF)", "CH_10Y", "%"))
-    if "JP_10Y" in df.columns:
-        intl_definitions.append(("🇯🇵 JP 10Y (JGB)", "JP_10Y", "%"))
-    if "ECB_RATE" in df.columns:
-        intl_definitions.append(("🏦 ECB Rate", "ECB_RATE", "%"))
+    # Offer a series only if it has a recent print. Several intl feeds have
+    # gone dead; without this the section rendered a header over an empty row.
+    _intl_candidates = [
+        ("🇩🇪 DE 10Y (EUR)",  "DE_10Y"),
+        ("🇩🇪 DE 2Y",         "DE_2Y"),
+        ("🇬🇧 UK 10Y (Gilt)", "GB_10Y"),
+        ("🇬🇧 UK 2Y",         "GB_2Y"),
+        ("🇨🇭 CH 10Y (CHF)",  "CH_10Y"),
+        ("🇯🇵 JP 10Y (JGB)",  "JP_10Y"),
+        ("🏦 ECB Rate",                "ECB_RATE"),
+    ]
+    intl_definitions = [(lbl, col, "%") for lbl, col in _intl_candidates
+                        if is_fresh(df, col)]
+    intl_stale = [(lbl, col) for lbl, col in _intl_candidates
+                  if col in df.columns and not is_fresh(df, col)]
 
-    if intl_definitions:
+    if intl_definitions or intl_stale:
         st.markdown('<p class="section-header">🌍 International Government Yields</p>', unsafe_allow_html=True)
-        metric_row(df, intl_definitions, lookback_days)
+        if intl_definitions:
+            metric_row(df, intl_definitions, lookback_days)
+        if intl_stale:
+            st.caption(stale_note(df, intl_stale))
         st.divider()
 
     # ── SOFR / Credit KPIs ────────────────────────────────────────────────

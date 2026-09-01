@@ -30,7 +30,17 @@ Cross-Currency Basis
 import numpy as np
 import pandas as pd
 from typing import List, Optional, Dict, Tuple
-from scipy.optimize import brentq
+
+
+def brentq(*args, **kwargs):
+    """Lazy proxy for ``scipy.optimize.brentq``.
+
+    Importing scipy.optimize costs ~0.5s and the only caller in this module
+    is the yield solver, which most dashboard pages never touch. Deferring
+    the import to first call takes that off every cold page load.
+    """
+    from scipy.optimize import brentq as _brentq
+    return _brentq(*args, **kwargs)
 
 
 # ---------------------------------------------------------------------------

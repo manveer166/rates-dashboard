@@ -24,7 +24,16 @@ This module covers the portfolio-level analysis seen in the eSwaps & Bonds noteb
 
 import numpy as np
 import pandas as pd
-from scipy.optimize import minimize
+
+
+def minimize(*args, **kwargs):
+    """Lazy proxy for ``scipy.optimize.minimize`` — see spread_options._LazyNorm.
+
+    Only the portfolio optimiser needs it; deferring keeps scipy off the
+    critical path for every page that just reads the curve.
+    """
+    from scipy.optimize import minimize as _minimize
+    return _minimize(*args, **kwargs)
 from typing import Dict, List, Optional, Tuple
 from .utils import zscore, percentile_rank, annualized_vol
 

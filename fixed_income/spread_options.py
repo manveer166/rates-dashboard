@@ -25,9 +25,33 @@ All inputs in basis points (bps), outputs in bps.
 
 import numpy as np
 import pandas as pd
-from scipy.stats import norm
-from scipy.optimize import brentq
 from typing import Optional, Tuple, List, Dict
+
+
+class _LazyNorm:
+    """Lazy proxy for ``scipy.stats.norm``.
+
+    scipy.stats costs ~0.4s to import and is needed only when the spread-
+    option pricers actually run — which the Scanner, Backtester and Regime
+    pages never do. Resolved on first attribute access, then cached.
+    """
+
+    _real = None
+
+    def __getattr__(self, item):
+        if _LazyNorm._real is None:
+            from scipy.stats import norm as _norm
+            _LazyNorm._real = _norm
+        return getattr(_LazyNorm._real, item)
+
+
+norm = _LazyNorm()
+
+
+def brentq(*args, **kwargs):
+    """Lazy proxy for ``scipy.optimize.brentq`` — see :class:`_LazyNorm`."""
+    from scipy.optimize import brentq as _brentq
+    return _brentq(*args, **kwargs)
 from .utils import zscore, percentile_rank, rolling_std
 
 

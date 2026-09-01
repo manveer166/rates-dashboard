@@ -53,6 +53,21 @@ EODHD_MACRO_SYMBOLS: Dict[str, str] = {
     "VIX":  "VIX.INDX",
 }
 
+# Symbols EODHD no longer serves on our plan — every request returns an empty
+# payload. Each dead symbol still costs an HTTP round-trip plus the 0.25s
+# rate-limit sleep below, so we skip them rather than paying for nothing.
+#
+# 3Y and 20Y are sourced from US Treasury / FRED anyway, so dropping the
+# EODHD fallback loses nothing. The international tickers have no working
+# source at all right now — the Home page labels them as unavailable rather
+# than showing their last known value.
+#
+# Last verified dead: 2026-07-30. Remove an entry here to re-enable it.
+EODHD_UNAVAILABLE = {
+    "3Y", "20Y",
+    "DE_2Y", "DE_10Y", "GB_2Y", "GB_10Y", "JP_10Y", "CH_10Y",
+}
+
 
 def _get_api_token() -> Optional[str]:
     """Read the EODHD API token from st.secrets (never hardcoded)."""
@@ -85,7 +100,9 @@ class EODHDFetcher(BaseFetcher):
                     logger.info(f"EODHD: cache hit ({len(cached)} rows)")
                     return cached
 
-        all_symbols = {**EODHD_BOND_SYMBOLS, **EODHD_MACRO_SYMBOLS}
+        all_symbols = {k: v for k, v in
+                       {**EODHD_BOND_SYMBOLS, **EODHD_MACRO_SYMBOLS}.items()
+                       if k not in EODHD_UNAVAILABLE}
         frames = {}
 
         for col_name, symbol in all_symbols.items():

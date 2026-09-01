@@ -30,8 +30,33 @@ ATM vols are the most liquid; OTM vols encode the skew.
 
 import numpy as np
 import pandas as pd
-from scipy.stats import norm
-from scipy.optimize import brentq, minimize
+
+
+class _LazyNorm:
+    """Lazy proxy for ``scipy.stats.norm`` — resolved on first use."""
+
+    _real = None
+
+    def __getattr__(self, item):
+        if _LazyNorm._real is None:
+            from scipy.stats import norm as _norm
+            _LazyNorm._real = _norm
+        return getattr(_LazyNorm._real, item)
+
+
+norm = _LazyNorm()
+
+
+def brentq(*args, **kwargs):
+    """Lazy proxy for ``scipy.optimize.brentq``."""
+    from scipy.optimize import brentq as _brentq
+    return _brentq(*args, **kwargs)
+
+
+def minimize(*args, **kwargs):
+    """Lazy proxy for ``scipy.optimize.minimize``."""
+    from scipy.optimize import minimize as _minimize
+    return _minimize(*args, **kwargs)
 from typing import Dict, List, Optional, Tuple
 from .utils import zscore, percentile_rank, rolling_std
 from .carry_rolldown import interpolate_rate
